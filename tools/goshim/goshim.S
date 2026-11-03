@@ -10,7 +10,8 @@
  *   2. nettoie et invalide tout le cache de données L1 (set/way) ;
  *   3. nettoie et invalide le L2 PL310 (0x00a02000) s'il est actif, puis le coupe ;
  *   4. coupe MMU, D-cache, I-cache, prédicteur ; invalide I-cache, TLB, BTB ;
- *   5. saute au zImage avec r0 = 0, r1 = ~0 (pas de machine ID), r2 = 0
+ *   5. écrit deux messages sur UART2 (début, puis juste avant le saut) ;
+ *   6. saute au zImage avec r0 = 0, r1 = ~0 (pas de machine ID), r2 = 0
  *      (le DTB est appendé au zImage, CONFIG_ARM_APPENDED_DTB).
  *
  * Hypothèse : U-Boot mappe la RAM à plat (VA = PA). Sinon le saut après coupure
@@ -30,9 +31,16 @@
 #define PL310_CTRL	0x100
 #define PL310_SYNC	0x730
 #define PL310_CINV_WAY	0x7fc
+#define UART2		0x021e8000	/* console ttymxc1 */
+#define UTXD		0x40
+#define UTS		0xb4
+#define UTS_TXFULL	(1 << 4)
 
 _start:
 	cpsid	if
+
+	adr	r0, msg_start
+	bl	puts
 
 	bl	v7_flush_dcache_all
 
@@ -71,10 +79,31 @@ _start:
 	dsb
 	isb
 
+	adr	r0, msg_jump
+	bl	puts
+
 	mov	r0, #0
 	mvn	r1, #0
 	mov	r2, #0
 	b	zimage
+
+/* Envoie la chaîne r0 (terminée par 0) sur UART2 ; utilise r0, r1, r3, r12. */
+puts:
+	ldr	r3, =UART2
+4:	ldrb	r1, [r0], #1
+	cmp	r1, #0
+	bxeq	lr
+5:	ldr	r12, [r3, #UTS]
+	tst	r12, #UTS_TXFULL
+	bne	5b
+	str	r1, [r3, #UTXD]
+	b	4b
+
+msg_start:
+	.asciz	"\r\ngoshim: start\r\n"
+msg_jump:
+	.asciz	"goshim: caches/MMU off, jump to zImage\r\n"
+	.align	2
 
 /*
  * Clean + invalidate de toutes les lignes de cache de données jusqu'au
