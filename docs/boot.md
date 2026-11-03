@@ -52,6 +52,30 @@ Adresses du boot.img vendeur (boot normal) : noyau @ `0x10808000`, ramdisk @ `0x
 En `fastboot boot`, U-Boot respecte les adresses de l'en-tête. L'IVT d'un noyau signé contient sa propre adresse :
 pour réutiliser le noyau vendeur, garder **exactement** `kernel_addr = 0x10808000`.
 
+### boot.img vendeur (eMMC p1)
+
+| Champ | Taille | Adresse |
+|---|---|---|
+| kernel | `0x609000` | `0x10808000` |
+| ramdisk | `0xe141c` | `0x11800000` |
+| second (**DTB**) | `0x9d23` | `0x11700000` |
+| tags | — | `0x10800100` |
+
+Le noyau est un zImage complété à `0x606000`, suivi de l'IVT puis de la CSF :
+
+| IVT (`+0x606000`) | Valeur |
+|---|---|
+| header | `0x402000d1` |
+| entry | `0x10808000` |
+| self | `0x10e0e000` (= `0x10808000 + 0x606000`) |
+| csf | `0x10e0f000` (CSF dans les `0x2000` derniers octets) |
+
+La signature couvre la zone du noyau à son adresse de chargement : DTB (`second`), ramdisk et cmdline ne sont pas signés.
+Un boot.img qui garde le noyau octet pour octet à `0x10808000` passe donc HAB avec un ramdisk et un DTB modifiés.
+
+Partitions eMMC (MBR) : p1 boot, p2 recovery (8 Mo chacune), p4 `/data`, p5 `/system`, p6 `/cache`, p7 `/device`,
+p10 `/fotatemp`, p11/p13 FAT16, p12 à identifier. `mmcblk2boot0/1` sont vides.
+
 ## Contournement : commande `go`
 
 La console U-Boot est accessible (taper une touche au reset). `go <addr>` saute à une adresse **sans
