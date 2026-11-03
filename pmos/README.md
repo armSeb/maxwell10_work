@@ -19,9 +19,24 @@ Modifier le DT ou goshim **à leur place d'origine**, puis relancer `sync.sh`.
 
 ## Installer sur la carte (sur le PC)
 
+### Script (recommandé)
+
+```sh
+pmbootstrap init                         # une fois, n'importe quel appareil : crée config + clone pmaports
+pmos/install-sdcard.sh /dev/sdX          # UI buffyboard par défaut ; UI=cage pour un kiosque
+```
+
+[install-sdcard.sh](install-sdcard.sh) vérifie la carte (disque entier, non monté, < 64 Go,
+confirmation en retapant le chemin), met à jour pmaports, copie les paquets, calcule les sommes,
+règle `device` et `ui`, lance `pmbootstrap install --sdcard`, contrôle que p1 contient
+`go.bin` et `initramfs`, puis affiche l'environnement U-Boot à saisir.
+
+### À la main
+
+
 ```sh
 pmbootstrap init                 # choisir n'importe quel appareil pour l'instant, canal edge
-pmos/sync.sh "$(pmbootstrap config aports)"
+pmos/sync.sh "$(pmbootstrap config work)/cache_git/pmaports"
 pmbootstrap checksum linux-gigaset-maxwell10 device-gigaset-maxwell10
 pmbootstrap init                 # vendor : gigaset, device : maxwell10 ; UI : console (ou none)
 pmbootstrap kconfig check linux-gigaset-maxwell10   # signale les options pmOS manquantes

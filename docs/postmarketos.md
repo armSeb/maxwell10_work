@@ -69,17 +69,34 @@ saveenv
 | p1 | `pmOS_boot` | FAT32 | 256 Mo | `go.bin`, `initramfs`, `vmlinuz`, `dtbs/` |
 | p2 | `pmOS_root` | ext4 | reste (~1,7 Go) | rootfs |
 
+Interface conseillée :
+
+- **`buffyboard`** pour le premier démarrage : console texte avec clavier tactile à l'écran.
+  Léger, et suffisant pour valider écran, tactile, réseau et Wi-Fi. Tout reste accessible par
+  l'UART et le SSH même si l'écran ou le tactile ne marchent pas encore.
+- **`cage`** ensuite, pour le dashboard : compositeur Wayland kiosque qui affiche une seule
+  application en plein écran. Choisir un navigateur léger : le Cortex-A9 et le GC2000 (etnaviv)
+  peinent avec Firefox et un dashboard Home Assistant chargé.
+- Phosh, Plasma Mobile, Sxmo : trop lourds pour 2 Go de carte, et peu utiles ici.
+
 2 Go suffisent pour l'interface `console` (quelques centaines de Mo) ou un kiosque léger
 (cage + navigateur, pour le dashboard Home Assistant). Phosh ou Plasma Mobile ne tiendront pas :
 prévoir une carte plus grande pour une interface complète.
 
 ## Construire et installer
 
-Voir [pmos/README.md](../pmos/README.md). En bref, sur le PC :
+Voir [pmos/README.md](../pmos/README.md). Le plus simple, sur le PC :
+
+```sh
+pmbootstrap init                         # une fois
+pmos/install-sdcard.sh /dev/sdX
+```
+
+Ou étape par étape :
 
 ```sh
 pmbootstrap init                                    # device : gigaset-maxwell10 (après sync.sh)
-pmos/sync.sh "$(pmbootstrap config aports)"
+pmos/sync.sh "$(pmbootstrap config work)/cache_git/pmaports"
 pmbootstrap checksum linux-gigaset-maxwell10 device-gigaset-maxwell10
 pmbootstrap install --sdcard=/dev/sdX               # mot de passe demandé
 ```
