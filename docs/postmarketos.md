@@ -1,4 +1,8 @@
-# postmarketOS sur microSD
+# postmarketOS (Nura) sur microSD
+
+> Le projet postmarketOS a été renommé **Nura** en septembre 2026 (nura.eco). Les outils et noms
+> techniques (`pmbootstrap`, `pmaports`, paquets `postmarketos-*`, labels `pmOS_boot`/`pmOS_root`)
+> restent ceux de postmarketOS pendant la transition : ce document les utilise tels quels.
 
 Objectif : un noyau **mainline** et **postmarketOS** sur la carte microSD, sans toucher à l'eMMC
 (Android reste intact et redémarre dès qu'on retire la carte).

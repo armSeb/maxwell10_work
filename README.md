@@ -3,7 +3,7 @@
 Libération du **Gigaset Maxwell 10** (téléphone de bureau IP/DECT avec tablette Android 10,1")
 pour en faire un terminal Linux tactile : dashboard Home Assistant, et gestion du combiné DECT.
 
-Cible : **postmarketOS** sur noyau **mainline**, avec un démon maison pour la base DECT (DSPG DVF99).
+Cible : **postmarketOS** (renommé **Nura** en 2026) sur noyau **mainline**, avec un démon maison pour la base DECT (DSPG DVF99).
 
 ## État
 
