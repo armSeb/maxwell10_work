@@ -1,0 +1,16 @@
+# Images et dumps
+*.img
+*.img.gz
+*.bin
+maxwell-dump-*/
+# Binaires et dérivés du firmware vendeur (ne pas publier)
+*.so
+*.apk
+CMBSServer
+cmbs_host
+cmbs_types.h
+dect_configs/
+# Build
+dump/init
+zImage*
+*.cpio*

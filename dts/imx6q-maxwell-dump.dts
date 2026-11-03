@@ -1,0 +1,109 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Gigaset Maxwell 10 (max10 HW rev 9) — DT minimal pour dump eMMC/NOR
+ * Pinmux repris du DT vendeur (BSP 3.14.52).
+ */
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include "imx6q.dtsi"
+
+/ {
+	model = "Gigaset Maxwell 10 (dump)";
+	compatible = "gigaset,maxwell10", "fsl,imx6q";
+
+	chosen {
+		stdout-path = &uart2;
+		bootargs = "console=ttymxc1,115200 earlycon=ec_imx6q,0x021e8000 loglevel=8 rdinit=/init";
+	};
+
+	memory@10000000 {
+		device_type = "memory";
+		reg = <0x10000000 0x80000000>;
+	};
+
+	reg_3p3v: regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "3P3V";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+};
+
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart2>;
+	status = "okay";
+};
+
+/* eMMC SEM04G, 8 bits */
+&usdhc3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usdhc3>;
+	bus-width = <8>;
+	non-removable;
+	no-1-8-v;
+	vmmc-supply = <&reg_3p3v>;
+	status = "okay";
+};
+
+/* Port mini-USB (OTG) en mode device uniquement */
+&usbotg {
+	dr_mode = "peripheral";
+	disable-over-current;
+	status = "okay";
+};
+
+/* Le watchdog est peut-être déjà armé par U-Boot : le noyau doit le servir */
+&wdog1 {
+	status = "okay";
+};
+
+/* NOR SPI w25q16 (U-Boot + jffs2 vendor_gigaset) */
+&ecspi4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_ecspi4>;
+	cs-gpios = <&gpio3 20 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <20000000>;
+	};
+};
+
+&iomuxc {
+	pinctrl_uart2: uart2grp {
+		fsl,pins = <
+			0x0bc 0x3d0 0x000 0x4 0x0 0x1b0b1
+			0x0c0 0x3d4 0x928 0x4 0x1 0x1b0b1
+		>;
+	};
+
+	pinctrl_usdhc3: usdhc3grp {
+		fsl,pins = <
+			0x2b8 0x6a0 0x000 0x0 0x0 0x17059
+			0x2bc 0x6a4 0x000 0x0 0x0 0x10059
+			0x2c0 0x6a8 0x000 0x0 0x0 0x17059
+			0x2c4 0x6ac 0x000 0x0 0x0 0x17059
+			0x2c8 0x6b0 0x000 0x0 0x0 0x17059
+			0x2cc 0x6b4 0x000 0x0 0x0 0x17059
+			0x2b4 0x69c 0x000 0x0 0x0 0x17059
+			0x2b0 0x698 0x000 0x0 0x0 0x17059
+			0x2ac 0x694 0x000 0x0 0x0 0x17059
+			0x2a8 0x690 0x000 0x0 0x0 0x17059
+			0x2d0 0x6b8 0x000 0x0 0x0 0x17059
+		>;
+	};
+
+	pinctrl_ecspi4: ecspi4grp {
+		fsl,pins = <
+			0x0a8 0x3bc 0x000 0x1 0x0 0x100b1	/* EIM_D21 ECSPI4_SCLK */
+			0x0c4 0x3d8 0x000 0x2 0x0 0x100b1	/* EIM_D28 ECSPI4_MOSI */
+			0x0a4 0x3b8 0x000 0x1 0x0 0x100b1	/* EIM_D22 ECSPI4_MISO */
+			0x0a0 0x3b4 0x000 0x5 0x0 0x0b0b1	/* EIM_D20 GPIO3_IO20 (CS) */
+		>;
+	};
+};

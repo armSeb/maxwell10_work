@@ -1,0 +1,101 @@
+# Base DECT : DSPG DVF9919 et protocole CMBS
+
+## Architecture
+
+La **DVF9919** (famille DSPG DVF99) fait à la fois :
+
+- la **base DECT** (combiné Maxwell, casques DECT) ;
+- l'**AFE audio** : haut-parleurs (`amp_out0..3`), micros (entrées différentielles), combiné filaire RJ9
+  (détection de présence par mesure de tension AUX) ;
+- quelques GPIO / interruptions externes (berceau du combiné, courant de charge).
+
+L'i.MX6 ne voit que :
+
+- **UART3** (`/dev/ttymxc2`, 115200 8N1, sans contrôle de flux) : console U-Boot de la DVF99, puis protocole CMBS ;
+- **TDM/PCM** entre la DVF99 et **SSI1**, via l'AUDMUX (port interne 2 ↔ port externe 4) ;
+- **GPIO4_IO22** (gpio 118 du noyau vendeur) : reset de la DVF99, actif bas.
+
+Conséquence : sans piloter la DVF99 en CMBS, **aucune sortie audio**, même sur les haut-parleurs.
+
+## Logiciel vendeur (Android)
+
+| Élément | Rôle |
+|---|---|
+| `/system/bin/CMBSServer` | service init `cmbs_server` (root), expose le service binder `CMBS_SERVICE` |
+| `/system/lib/libcmbs_host.so` | pile CMBS host DSPG (couches `cfr_*`, `cmbs_int_*`, `cmbs_dsr/dee/dem/han…`, appli `appcmbs_*`) |
+| `/system/lib/libCMBSClient.so` | client binder pour les applis (`com.maxwell.phone`…) |
+| `/system/lib/libYModem.so` | `Dvf99_upgrade` : reset, boot, mise à jour YModem de la DVF99 |
+| `cmbs_host` (outil) | appli de test DSPG `tcx_cmbs` **avec infos de debug** |
+| `dvf99gpioreset.sh` | service `gpioreset_script` : pulse bas de 50 ms sur gpio 118 + relance des PHY du switch |
+| `/vendor_gigaset/dect_configs/` (NOR, jffs2) | paramètres usine : `dect_ft_NNN.txt` = valeurs `CMBS_PARAM_*` (RFPI, calibration RF…) |
+| `/data/cmbs/nvram.bin` | EEPROM émulée de la base (appairages) |
+| `/fotatemp/firmware/cordless_noelf.bin` | image de secours de la pile cordless DVF99 |
+
+Version de la pile observée : `Version 03.64 - Build 1a`.
+
+⚠️ Les fichiers `dect_configs` et `nvram.bin` sont **propres à chaque appareil** (identité radio, calibration).
+Ne pas les publier ; les sauvegarder avant toute expérimentation.
+
+## Démarrage de la DVF99
+
+D'après `libYModem.so` et `CMBSServer` :
+
+1. reset : GPIO4_IO22 à 0 pendant 50 ms, puis 1 ;
+2. la DVF99 démarre **son propre U-Boot**, console sur UART3 ;
+3. l'hôte envoie `run bootm\r` ; la variable `bootm` du module fait
+   `run chk_parts; cp.b css ${loadaddr} && css load ${loadaddr} …`
+   (copie et démarrage de l'image **CSS** — Cordless Software Stack — depuis la flash du module) ;
+4. en cas d'image invalide : `run upgrade`, attente de `Ready for binary (ymodem) download`,
+   envoi de `cordless_noelf.bin` en YModem, `cp.b ${loadaddr} css`, `saveenv` ;
+5. la pile cordless parle ensuite **CMBS** sur le même UART.
+
+⚠️ Ne pas lancer `saveenv` / `upgrade` sur la console du module sans sauvegarde.
+
+## Trames CMBS
+
+```
+DA DA DA DA                                   mot de synchro (0xDADADADA)
+u16 u16_TotalLength                           \
+u16 u16_PacketNr                               | ST_CMBS_SER_MSGHDR (8 octets)
+u16 u16_EventID                                |
+u16 u16_ParamLength                           /
+u8  params[u16_ParamLength]                   liste d'IE (cfr_ie_*)
+```
+
+Taille maximale d'un message : 1024 octets (+ 4 de synchro). Couche de lien : Hello / Capabilities,
+contrôle de flux (`FlowNOK` / `FlowRestart`), erreurs de checksum.
+
+### Séquence de démarrage observée (logcat)
+
+| ID | Événement |
+|---|---|
+| 26 | `CMBS_EV_DSR_SYS_START_RES` |
+| 125 | `CMBS_EV_DSR_TARGET_UP` |
+| 16 | `CMBS_EV_DSR_PARAM_SET_RES` |
+| 239 | `CMBS_EV_DSR_AFE_ENDPOINT_ENABLE_RES` |
+| 245 | `CMBS_EV_DSR_AFE_AUX_MEASUREMENT_RES` (détection RJ9) |
+
+Configuration AFE au démarrage : `wideband = 1`, `input_diffin1 = 16`, `input_diffin2 = 16`,
+`input_sig0 = 12`, `amp_out0 = 1`, `amp_out1 = 1`, `amp_out2 = 2`, `amp_out3 = 2`, TDM configuré.
+
+## Définitions de types
+
+L'outil `cmbs_host` du firmware contient le DWARF complet (54 unités de compilation) :
+énumérations des événements (267), types d'IE (113), paramètres, AFE, codes retour, structures.
+Ce header n'est **pas** publié ici ; on le régénère depuis son propre appareil :
+
+```sh
+adb pull <chemin>/cmbs_host
+pip install pyelftools
+python3 tools/dwarf2h.py cmbs_host cmbs_types.h
+```
+
+## Plan
+
+1. sniffer les deux sens de l'UART3 (pistes EIM_D24 / EIM_D25 côté i.MX) pendant décroché, raccroché,
+   appel interne, pose du combiné sur le socle ;
+2. décodeur Python des trames (synchro, en-tête, IE) ;
+3. démon `cmbsd` sous Linux : reset, `run bootm`, Hello, SYS_START, PARAM_SET depuis `dect_configs`,
+   AFE, appairage, événements d'appel ;
+4. audio : `fsl-ssi` + `audmux` + `simple-audio-card` en mainline, TDM esclave/maître à déterminer ;
+5. intégration : baresip (SIP), Home Assistant (Assist, événements décroché/touches).
