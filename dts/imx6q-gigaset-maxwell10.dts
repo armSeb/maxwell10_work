@@ -1,0 +1,438 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Gigaset Maxwell 10 (carte max10, révision matérielle 9) — DT mainline
+ *
+ * Tout ce qui est ici vient du DT vendeur (BSP 3.14.52) extrait de
+ * /proc/device-tree, voir dts/imx6q-maxwell10-vendor.dts et docs/hardware.md.
+ * État de chaque bloc : docs/postmarketos.md.
+ *
+ * Démarrage : U-Boot vendeur → fatload go.bin (goshim + zImage + ce DTB appendé)
+ * → go. L'initramfs arrive par ATAG_INITRD2 (voir tools/goshim), la ligne de
+ * commande est /chosen/bootargs ci-dessous.
+ */
+/dts-v1/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+#include "imx6q.dtsi"
+
+/ {
+	model = "Gigaset Maxwell 10";
+	compatible = "gigaset,maxwell10", "fsl,imx6q";
+
+	chosen {
+		stdout-path = &uart2;
+		/* dernière console = /dev/console : l'écran ; l'UART2 reçoit aussi les messages */
+		bootargs = "console=ttymxc1,115200 console=tty0 cma=256M";
+	};
+
+	memory@10000000 {
+		device_type = "memory";
+		reg = <0x10000000 0x80000000>;
+	};
+
+	reg_3p3v: regulator-3p3v {
+		compatible = "regulator-fixed";
+		regulator-name = "3P3V";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm1 0 50000 0>;		/* 50 µs, comme le vendeur */
+		brightness-levels = <0 255>;
+		num-interpolated-steps = <255>;
+		default-brightness-level = <200>;
+	};
+
+	panel {
+		/* LG LP101WX1 10,1" 1280×800 ; mapping « spwg » du BSP = VESA */
+		compatible = "lg,lp101wx1", "panel-lvds";
+		backlight = <&backlight>;
+		width-mm = <217>;
+		height-mm = <136>;
+		data-mapping = "vesa-24";
+
+		panel-timing {
+			clock-frequency = <83500000>;
+			hactive = <1280>;
+			vactive = <800>;
+			hfront-porch = <72>;
+			hback-porch = <200>;
+			hsync-len = <128>;
+			vfront-porch = <22>;
+			vback-porch = <3>;
+			vsync-len = <6>;
+			vsync-active = <1>;
+		};
+
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&lvds0_out>;
+			};
+		};
+	};
+
+	gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_keys>;
+
+		key-power {
+			label = "Power";
+			gpios = <&gpio4 10 GPIO_ACTIVE_LOW>;
+			linux,code = <KEY_POWER>;
+			wakeup-source;
+		};
+	};
+
+	/* Wi-Fi AR6003 : reset GPIO1_IO08 actif bas (gpio-reset vendeur, 10 ms) */
+	wifi_pwrseq: wifi-pwrseq {
+		compatible = "mmc-pwrseq-simple";
+		reset-gpios = <&gpio1 8 GPIO_ACTIVE_LOW>;
+		post-power-on-delay-ms = <10>;
+	};
+};
+
+&gpio4 {
+	/*
+	 * Ventilateur (gpio-fan vendeur) forcé en marche tant qu'il n'est pas
+	 * piloté par la thermique. Plus bruyant, mais sûr.
+	 */
+	fan-hog {
+		gpio-hog;
+		gpios = <23 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "fan";
+	};
+
+	/*
+	 * GPIO4_IO22 = reset de la DVF99 (DECT + audio). Volontairement NON décrit :
+	 * la DVF99 fournit l'horloge du switch Ethernet (cartes rév. ≤ 11), un reset
+	 * coupe le réseau. Voir docs/hardware.md.
+	 */
+};
+
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart2>;
+	status = "okay";
+};
+
+/* eMMC SEM04G, 8 bits — Android intact dessus, on n'y écrit pas */
+&usdhc3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usdhc3>;
+	bus-width = <8>;
+	non-removable;
+	no-1-8-v;
+	vmmc-supply = <&reg_3p3v>;
+	status = "okay";
+};
+
+/* microSD (sous un cache) : boot + rootfs postmarketOS */
+&usdhc4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usdhc4>;
+	bus-width = <4>;
+	cd-gpios = <&gpio2 6 GPIO_ACTIVE_LOW>;
+	disable-wp;
+	no-1-8-v;
+	vmmc-supply = <&reg_3p3v>;
+	status = "okay";
+};
+
+/* Wi-Fi Atheros AR6003 en SDIO (ath6kl_sdio, firmware ath6k/AR6003/hw2.1.1) */
+&usdhc1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usdhc1>;
+	bus-width = <4>;
+	non-removable;
+	keep-power-in-suspend;
+	no-1-8-v;
+	vmmc-supply = <&reg_3p3v>;
+	mmc-pwrseq = <&wifi_pwrseq>;
+	status = "okay";
+};
+
+&pwm1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_pwm1>;
+	status = "okay";
+};
+
+&ldb {
+	status = "okay";
+
+	lvds-channel@0 {
+		fsl,data-mapping = "spwg";
+		fsl,data-width = <24>;
+		status = "okay";
+
+		port@4 {
+			reg = <4>;
+
+			lvds0_out: endpoint {
+				remote-endpoint = <&panel_in>;
+			};
+		};
+	};
+};
+
+/* Tactile FocalTech FT5x06 */
+&i2c3 {
+	clock-frequency = <100000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_i2c3>;
+	status = "okay";
+
+	touchscreen@38 {
+		compatible = "edt,edt-ft5306";
+		reg = <0x38>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_touch>;
+		interrupt-parent = <&gpio1>;
+		interrupts = <2 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&gpio2 19 GPIO_ACTIVE_LOW>;
+		touchscreen-size-x = <1280>;
+		touchscreen-size-y = <800>;
+	};
+};
+
+/*
+ * Ethernet : FEC en RGMII, lien fixe 1 Gb/s vers le port CPU (5) d'un switch
+ * Marvell 88E6320 ; ports utilisateur 3 (« lan ») et 4 (« pc », passthrough PC).
+ * Délais RGMII à confirmer sur matériel (le vendeur déclare « rgmii » côté FEC).
+ */
+&fec {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_enet>;
+	phy-mode = "rgmii";
+	status = "okay";
+
+	fixed-link {
+		speed = <1000>;
+		full-duplex;
+	};
+
+	mdio {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		switch@0 {
+			compatible = "marvell,mv88e6085";
+			reg = <0>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_switch>;
+			reset-gpios = <&gpio1 9 GPIO_ACTIVE_LOW>;
+
+			ethernet-ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				ethernet-port@3 {
+					reg = <3>;
+					label = "lan";
+				};
+
+				ethernet-port@4 {
+					reg = <4>;
+					label = "pc";
+				};
+
+				ethernet-port@5 {
+					reg = <5>;
+					ethernet = <&fec>;
+					/* le FEC i.MX6 n'a pas de délai interne : le switch les ajoute */
+					phy-mode = "rgmii-id";
+
+					fixed-link {
+						speed = <1000>;
+						full-duplex;
+					};
+				};
+			};
+		};
+	};
+};
+
+/* Mini-USB caché (OTG) : gadget USB pour le réseau USB de postmarketOS */
+&usbotg {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_usbotg>;
+	dr_mode = "peripheral";
+	disable-over-current;
+	status = "okay";
+};
+
+/* Hôte : hub SMSC USB2512, 2 ports A */
+&usbh1 {
+	disable-over-current;
+	status = "okay";
+};
+
+/* Le watchdog est peut-être déjà armé par U-Boot : le noyau doit le servir */
+&wdog1 {
+	status = "okay";
+};
+
+/* NOR SPI W25Q16 (U-Boot + jffs2 vendor_gigaset) — en lecture seule */
+&ecspi4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_ecspi4>;
+	cs-gpios = <&gpio3 20 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <20000000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "u-boot";
+				reg = <0x0 0x100000>;
+				read-only;
+			};
+
+			partition@100000 {
+				label = "vendor_gigaset";
+				reg = <0x100000 0x100000>;
+				read-only;
+			};
+		};
+	};
+};
+
+&iomuxc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_hog>;
+
+	pinctrl_hog: hoggrp {
+		fsl,pins = <
+			0x178 0x48c 0x000 0x5 0x0 0xb0b1	/* DISP0_DAT2 = GPIO4_IO23, ventilateur */
+			0x244 0x614 0x000 0x5 0x0 0xb0b0	/* GPIO_8 = GPIO1_IO08, reset Wi-Fi */
+		>;
+	};
+
+	pinctrl_uart2: uart2grp {
+		fsl,pins = <
+			0x0bc 0x3d0 0x000 0x4 0x0 0x1b0b1
+			0x0c0 0x3d4 0x928 0x4 0x1 0x1b0b1
+		>;
+	};
+
+	pinctrl_usdhc1: usdhc1grp {
+		fsl,pins = <
+			0x348 0x730 0x000 0x0 0x0 0x17059	/* SD1_CMD */
+			0x350 0x738 0x000 0x0 0x0 0x10059	/* SD1_CLK */
+			0x340 0x728 0x000 0x0 0x0 0x17059	/* SD1_DAT0 */
+			0x33c 0x724 0x000 0x0 0x0 0x17059	/* SD1_DAT1 */
+			0x34c 0x734 0x000 0x0 0x0 0x17059	/* SD1_DAT2 */
+			0x344 0x72c 0x000 0x0 0x0 0x17059	/* SD1_DAT3 */
+		>;
+	};
+
+	pinctrl_usdhc3: usdhc3grp {
+		fsl,pins = <
+			0x2b8 0x6a0 0x000 0x0 0x0 0x17059
+			0x2bc 0x6a4 0x000 0x0 0x0 0x10059
+			0x2c0 0x6a8 0x000 0x0 0x0 0x17059
+			0x2c4 0x6ac 0x000 0x0 0x0 0x17059
+			0x2c8 0x6b0 0x000 0x0 0x0 0x17059
+			0x2cc 0x6b4 0x000 0x0 0x0 0x17059
+			0x2b4 0x69c 0x000 0x0 0x0 0x17059
+			0x2b0 0x698 0x000 0x0 0x0 0x17059
+			0x2ac 0x694 0x000 0x0 0x0 0x17059
+			0x2a8 0x690 0x000 0x0 0x0 0x17059
+			0x2d0 0x6b8 0x000 0x0 0x0 0x17059
+		>;
+	};
+
+	pinctrl_usdhc4: usdhc4grp {
+		fsl,pins = <
+			0x2f4 0x6dc 0x000 0x0 0x0 0x17075	/* SD4_CMD */
+			0x2f8 0x6e0 0x000 0x0 0x0 0x10075	/* SD4_CLK */
+			0x31c 0x704 0x000 0x1 0x0 0x17075	/* SD4_DAT0 */
+			0x320 0x708 0x000 0x1 0x0 0x17075	/* SD4_DAT1 */
+			0x324 0x70c 0x000 0x1 0x0 0x17075	/* SD4_DAT2 */
+			0x328 0x710 0x000 0x1 0x0 0x17075	/* SD4_DAT3 */
+			0x314 0x6fc 0x000 0x5 0x0 0x1b0b0	/* NANDF_D6 = GPIO2_IO06, détection carte */
+		>;
+	};
+
+	pinctrl_pwm1: pwm1grp {
+		fsl,pins = <
+			0x190 0x4a4 0x000 0x2 0x0 0x1b0b1	/* DISP0_DAT8 PWM1_OUT */
+		>;
+	};
+
+	pinctrl_i2c3: i2c3grp {
+		fsl,pins = <
+			0x22c 0x5fc 0x8a8 0x2 0x1 0x4001b8b1	/* GPIO_3 I2C3_SCL */
+			0x230 0x600 0x8ac 0x2 0x1 0x4001b8b1	/* GPIO_6 I2C3_SDA */
+		>;
+	};
+
+	pinctrl_touch: touchgrp {
+		fsl,pins = <
+			0x234 0x604 0x000 0x5 0x0 0xb0b0	/* GPIO_2 = GPIO1_IO02, IRQ */
+			0x0e8 0x3fc 0x000 0x5 0x0 0xb0b1	/* EIM_A19 = GPIO2_IO19, reset */
+		>;
+	};
+
+	pinctrl_keys: keysgrp {
+		fsl,pins = <
+			0x208 0x5d8 0x000 0x5 0x0 0x1b0b0	/* KEY_COL2 = GPIO4_IO10, power */
+		>;
+	};
+
+	pinctrl_enet: enetgrp {
+		fsl,pins = <
+			0x1d0 0x4e4 0x840 0x1 0x0 0x1b0b0	/* ENET_MDIO */
+			0x1f4 0x508 0x000 0x1 0x0 0x1b0b0	/* ENET_MDC */
+			0x058 0x36c 0x000 0x1 0x0 0x1b0b0	/* RGMII_TXC */
+			0x05c 0x370 0x000 0x1 0x0 0x1b0b0	/* RGMII_TD0 */
+			0x060 0x374 0x000 0x1 0x0 0x1b0b0	/* RGMII_TD1 */
+			0x064 0x378 0x000 0x1 0x0 0x1b0b0	/* RGMII_TD2 */
+			0x068 0x37c 0x000 0x1 0x0 0x1b0b0	/* RGMII_TD3 */
+			0x074 0x388 0x000 0x1 0x0 0x1b0b0	/* RGMII_TX_CTL */
+			0x084 0x398 0x844 0x1 0x0 0x1b0b0	/* RGMII_RXC */
+			0x070 0x384 0x848 0x1 0x0 0x1b0b0	/* RGMII_RD0 */
+			0x078 0x38c 0x84c 0x1 0x0 0x1b0b0	/* RGMII_RD1 */
+			0x07c 0x390 0x850 0x1 0x0 0x1b0b0	/* RGMII_RD2 */
+			0x080 0x394 0x854 0x1 0x0 0x1b0b0	/* RGMII_RD3 */
+			0x06c 0x380 0x858 0x1 0x0 0x1b0b0	/* RGMII_RX_CTL */
+			0x1d4 0x4e8 0x000 0x1 0x0 0x0a0b1	/* ENET_REF_CLK */
+		>;
+	};
+
+	pinctrl_switch: switchgrp {
+		fsl,pins = <
+			0x228 0x5f8 0x000 0x5 0x0 0xb0b1	/* GPIO_9 = GPIO1_IO09, reset switch */
+			0x1e0 0x4f4 0x000 0x5 0x0 0x1b0b0	/* ENET_RXD1 = GPIO1_IO26, IRQ switch ? */
+		>;
+	};
+
+	pinctrl_usbotg: usbotggrp {
+		fsl,pins = <
+			0x224 0x5f4 0x004 0x3 0xff0d0101 0x17059	/* GPIO_1 USB_OTG_ID (via GPR1) */
+		>;
+	};
+
+	pinctrl_ecspi4: ecspi4grp {
+		fsl,pins = <
+			0x0a8 0x3bc 0x000 0x1 0x0 0x100b1	/* EIM_D21 ECSPI4_SCLK */
+			0x0c4 0x3d8 0x000 0x2 0x0 0x100b1	/* EIM_D28 ECSPI4_MOSI */
+			0x0a4 0x3b8 0x000 0x1 0x0 0x100b1	/* EIM_D22 ECSPI4_MISO */
+			0x0a0 0x3b4 0x000 0x5 0x0 0x0b0b1	/* EIM_D20 GPIO3_IO20 (CS) */
+		>;
+	};
+};

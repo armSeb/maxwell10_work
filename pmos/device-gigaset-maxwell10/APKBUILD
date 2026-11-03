@@ -1,0 +1,33 @@
+# Reference: <https://postmarketos.org/devicepkg>
+pkgname=device-gigaset-maxwell10
+pkgdesc="Gigaset Maxwell 10"
+pkgver=1
+pkgrel=0
+url="https://github.com/armSeb/maxwell10_work"
+license="MIT"
+arch="armv7"
+options="!check !archcheck"
+depends="
+	postmarketos-base
+	linux-gigaset-maxwell10
+	"
+makedepends="devicepkg-dev"
+subpackages="$pkgname-nonfree-firmware:nonfree_firmware"
+source="deviceinfo"
+
+build() {
+	devicepkg_build $startdir $pkgname
+}
+
+package() {
+	devicepkg_package $startdir $pkgname
+}
+
+nonfree_firmware() {
+	pkgdesc="Firmware Wi-Fi Atheros AR6003 (ath6kl)"
+	depends="linux-firmware-ath6k"
+	mkdir "$subpkgdir"
+}
+
+# Sommes générées par : pmbootstrap checksum device-gigaset-maxwell10
+sha512sums=""

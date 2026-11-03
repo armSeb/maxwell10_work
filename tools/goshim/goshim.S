@@ -4,15 +4,25 @@
  *
  * `go` saute à l'adresse sans préparer le CPU comme le ferait bootm :
  * MMU, caches et L2 peuvent être actifs, et r0/r1/r2 ne suivent pas la convention
- * de boot ARM. Cette cale, placée juste devant le zImage (fichier unique, cale de 512 octets,
+ * de boot ARM. Cette cale, placée juste devant le zImage (fichier unique, cale de 1 Kio,
  * goshim.bin + zImage-dtb, voir build.sh) :
  *   1. masque IRQ/FIQ ;
  *   2. nettoie et invalide tout le cache de données L1 (set/way) ;
  *   3. nettoie et invalide le L2 PL310 (0x00a02000) s'il est actif, puis le coupe ;
  *   4. coupe MMU, D-cache, I-cache, prédicteur ; invalide I-cache, TLB, BTB ;
  *   5. écrit deux messages sur UART2 (début, puis juste avant le saut) ;
- *   6. saute au zImage avec r0 = 0, r1 = ~0 (pas de machine ID), r2 = 0
- *      (le DTB est appendé au zImage, CONFIG_ARM_APPENDED_DTB).
+ *   6. saute au zImage avec r0 = 0, r1 = ~0 (pas de machine ID) et
+ *      r2 = 0, ou r2 = liste d'ATAGs si un initramfs est passé (voir ci-dessous).
+ *      Le DTB est appendé au zImage (CONFIG_ARM_APPENDED_DTB).
+ *
+ * Initramfs : `go` d'U-Boot appelle entry(argc, argv), avec argv[0] = l'adresse
+ * de `go` elle-même. Avec
+ *     go 0x12000000 <adresse initrd> <taille initrd>      (hexadécimal, 0x facultatif)
+ * la cale écrit à ATAGS une liste ATAG_CORE, ATAG_INITRD2, ATAG_NONE et la passe
+ * dans r2. Le décompresseur (CONFIG_ARM_ATAG_DTB_COMPAT) la fusionne dans le DTB
+ * appendé : linux,initrd-start/end dans /chosen. La ligne de commande reste celle
+ * du DTB (/chosen/bootargs). Sans ces deux arguments, r2 = 0 et l'en-tête ATAG
+ * à ATAGS est effacé (le décompresseur y chercherait sinon d'anciens ATAGs).
  *
  * Hypothèse : U-Boot mappe la RAM à plat (VA = PA). Sinon le saut après coupure
  * de la MMU part dans le vide.
@@ -35,12 +45,57 @@
 #define UTXD		0x40
 #define UTS		0xb4
 #define UTS_TXFULL	(1 << 4)
+#define ATAGS		0x10000100	/* emplacement ATAG traditionnel, RAM base + 0x100 */
+#define ATAG_NONE	0x00000000
+#define ATAG_CORE	0x54410001
+#define ATAG_INITRD2	0x54420005
 
 _start:
 	cpsid	if
+	mov	r6, r0				/* argc de `go` */
+	mov	r8, r1				/* argv de `go` */
 
 	adr	r0, msg_start
 	bl	puts
+
+	/* ATAGs pour l'initramfs si `go <addr> <initrd> <taille>`, sinon r8 = 0.
+	 * Écrits cache actif : le nettoyage du D-cache ci-dessous les pousse en RAM. */
+	cmp	r6, #3
+	movlt	r8, #0
+	blt	6f
+	ldr	r0, [r8, #4]
+	bl	parse_hex
+	mov	r7, r0				/* adresse initrd */
+	ldr	r0, [r8, #8]
+	bl	parse_hex			/* taille initrd */
+	ldr	r8, =ATAGS
+	cmp	r0, #0
+	moveq	r8, #0
+	beq	6f
+	mov	r1, #2
+	ldr	r2, =ATAG_CORE
+	stmia	r8, {r1, r2}
+	mov	r1, #4
+	ldr	r2, =ATAG_INITRD2
+	add	r3, r8, #8
+	stmia	r3, {r1, r2, r7}
+	str	r0, [r8, #20]
+	mov	r1, #0
+	str	r1, [r8, #24]
+	str	r1, [r8, #28]
+	adr	r0, msg_initrd
+	bl	puts
+6:
+	/*
+	 * Sans initrd, effacer l'en-tête ATAG à ATAGS : faute d'ATAGs valides dans r2,
+	 * le décompresseur retente à RAM + 0x100 et y trouverait ceux d'un boot
+	 * précédent (Android par bootm, ou une ancienne ligne de commande).
+	 */
+	cmp	r8, #0
+	ldreq	r0, =ATAGS
+	moveq	r1, #0
+	streq	r1, [r0]
+	streq	r1, [r0, #4]
 
 	bl	v7_flush_dcache_all
 
@@ -84,8 +139,32 @@ _start:
 
 	mov	r0, #0
 	mvn	r1, #0
-	mov	r2, #0
+	mov	r2, r8				/* 0 ou ATAGS */
 	b	zimage
+
+/* Convertit la chaîne hexadécimale r0 (préfixe 0x facultatif) ; résultat dans r0.
+ * S'arrête au premier caractère non hexadécimal. Utilise r0-r3. */
+parse_hex:
+	mov	r1, r0
+	mov	r0, #0
+	ldrb	r2, [r1]
+	cmp	r2, #'0'
+	bne	7f
+	ldrb	r2, [r1, #1]
+	orr	r2, r2, #0x20
+	cmp	r2, #'x'
+	addeq	r1, r1, #2
+7:	ldrb	r2, [r1], #1
+	sub	r3, r2, #'0'
+	cmp	r3, #9
+	bls	8f
+	orr	r3, r2, #0x20
+	sub	r3, r3, #'a'
+	cmp	r3, #5
+	bxhi	lr
+	add	r3, r3, #10
+8:	orr	r0, r3, r0, lsl #4
+	b	7b
 
 /* Envoie la chaîne r0 (terminée par 0) sur UART2 ; utilise r0, r1, r3, r12. */
 puts:
@@ -101,6 +180,10 @@ puts:
 
 msg_start:
 	.asciz	"\r\ngoshim: start\r\n"
+	.align	2
+msg_initrd:
+	.asciz	"goshim: initrd -> ATAG_INITRD2\r\n"
+	.align	2
 msg_jump:
 	.asciz	"goshim: caches/MMU off, jump to zImage\r\n"
 	.align	2
@@ -156,6 +239,6 @@ finished:
 
 	.ltorg
 
-	/* le zImage commence à l'offset 0x200 du fichier */
-	.org	0x200
+	/* le zImage commence à l'offset 0x400 du fichier */
+	.org	0x400
 zimage:

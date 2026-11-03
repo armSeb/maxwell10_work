@@ -1,5 +1,5 @@
 #!/bin/sh
-# Assemble goshim.bin (512 octets) et, si un zImage avec DTB appendé est donné,
+# Assemble goshim.bin (1024 octets) et, si un zImage avec DTB appendé est donné,
 # produit le fichier à charger en RAM puis à lancer avec `go`.
 #   ./build.sh                      → goshim.bin seul
 #   ./build.sh zImage-dtb go.bin    → goshim.bin + zImage-dtb dans go.bin
@@ -19,7 +19,7 @@ fi
 rm -f "$here/goshim.o" "$here/goshim.elf"
 
 size=$(wc -c < "$here/goshim.bin")
-[ "$size" -eq 512 ] || { echo "goshim.bin fait $size octets au lieu de 512" >&2; exit 1; }
+[ "$size" -eq 1024 ] || { echo "goshim.bin fait $size octets au lieu de 1024" >&2; exit 1; }
 
 if [ $# -eq 2 ]; then
 	cat "$here/goshim.bin" "$1" > "$2"

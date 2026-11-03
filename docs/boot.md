@@ -82,6 +82,9 @@ La console U-Boot est accessible (taper une touche au reset). `go <addr>` saute 
 authentification HAB** : on charge un binaire en RAM (`loady`, `tftpboot`, `fatload`) et on l'exécute.
 Pour un zImage, [tools/goshim](../tools/goshim/) remet le CPU dans l'état attendu par Linux
 (caches, L2, MMU, registres) avant de sauter.
+Avec deux arguments de plus (`go <addr> <adresse initrd> <taille>`), goshim passe aussi un
+initramfs par ATAG_INITRD2 : c'est ce qu'utilise postmarketOS, voir [postmarketos.md](postmarketos.md).
+Le zImage commence à l'offset `0x400` de `go.bin` (cale de 1 Kio).
 
 ### Boot automatique depuis la microSD ✅
 
@@ -97,7 +100,8 @@ setenv bootcmd 'mmc dev 1 && fatload mmc 1:1 0x12000000 go.bin && go 0x12000000;
 saveenv
 ```
 
-Carte absente ou `go.bin` introuvable → retour à Android. Retirer la carte suffit pour revenir au boot d'origine.
+Carte absente ou `go.bin` introuvable → retour à Android.
+Pour postmarketOS (initramfs en plus), l'environnement complet est dans [postmarketos.md](postmarketos.md#environnement-u-boot). Retirer la carte suffit pour revenir au boot d'origine.
 
 `ext2load` (ext4 à extents) fige ce U-Boot : ne pas l'utiliser.
 

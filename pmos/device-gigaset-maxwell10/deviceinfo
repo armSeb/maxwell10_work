@@ -1,0 +1,28 @@
+# Reference: <https://postmarketos.org/deviceinfo>
+# Please use double quotes only. You can source this file in shell scripts.
+
+deviceinfo_format_version="0"
+deviceinfo_name="Gigaset Maxwell 10"
+deviceinfo_manufacturer="Gigaset"
+deviceinfo_codename="gigaset-maxwell10"
+deviceinfo_year="2015"
+deviceinfo_dtb="imx6q-gigaset-maxwell10"
+deviceinfo_arch="armv7"
+
+# Device related
+deviceinfo_chassis="tablet"
+deviceinfo_keyboard="false"
+deviceinfo_external_storage="true"
+deviceinfo_screen_width="1280"
+deviceinfo_screen_height="800"
+deviceinfo_getty="ttymxc1;115200"
+
+# Le noyau ne lit pas cette ligne : avec `go`, la ligne de commande vient de
+# /chosen/bootargs du DT. Gardée ici pour référence, à tenir synchronisée.
+deviceinfo_kernel_cmdline="console=ttymxc1,115200 console=tty0 cma=256M"
+
+# Démarrage : U-Boot vendeur lit /boot (FAT, partition 1 de la microSD).
+# Rien à flasher : pmbootstrap install --sdcard=/dev/sdX
+deviceinfo_flash_method="none"
+deviceinfo_boot_filesystem="fat32"
+deviceinfo_generate_extlinux_config="false"

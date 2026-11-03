@@ -19,9 +19,9 @@ Cible : **postmarketOS** sur noyau **mainline**, avec un démon maison pour la b
 | Dump eMMC / NOR | ⏳ |
 | Root Android (boot.img patché) | ⏳ |
 | Protocole DECT CMBS (DVF99) | 🔍 en cours — [docs/dect-cmbs.md](docs/dect-cmbs.md) |
-| DT mainline complet (écran, tactile, Ethernet DSA, Wi-Fi…) | ⏳ |
-| microSD dans le DT mainline (usdhc4) | ✅ [dts/imx6q-maxwell-dump.dts](dts/imx6q-maxwell-dump.dts), à tester |
-| Port postmarketOS (rootfs sur carte SD) | ⏳ |
+| Initramfs passé par `go` (goshim → ATAG_INITRD2) | 🧪 [docs/postmarketos.md](docs/postmarketos.md#chaîne-de-démarrage) |
+| DT mainline complet (écran, tactile, SD, Ethernet DSA, Wi-Fi…) | 🧪 écrit, compile — [dts/imx6q-gigaset-maxwell10.dts](dts/imx6q-gigaset-maxwell10.dts), [état par bloc](docs/postmarketos.md#état-des-périphériques-dt-dtsimx6q-gigaset-maxwell10dts) |
+| Port postmarketOS (microSD, boot FAT32) | 🧪 paquets prêts, à installer — [pmos/](pmos/), [docs/postmarketos.md](docs/postmarketos.md) |
 
 ## Matériel en bref
 
@@ -32,10 +32,11 @@ Bluetooth AR3002, caméra OV9740, base DECT + AFE audio **DSPG DVF9919**.
 ## Arborescence
 
 ```
-docs/      notes de rétro-ingénierie
-dts/       DT vendeur extrait (nettoyé) et DT mainline
+docs/      notes de rétro-ingénierie, boot, postmarketOS
+dts/       DT vendeur extrait (nettoyé), DT mainline de dump, DT mainline complet
 dump/      init minimal + script PC pour dumper eMMC/NOR via mass storage USB
-tools/     mkbootimg v0 minimal, extracteur de types DWARF → header C
+pmos/      paquets pmaports (noyau + device), script de synchronisation
+tools/     goshim (lancer un zImage par `go`), fiemap2uboot, mkbootimg v0, dump RAM, DWARF → header C
 ```
 
 ## Ce dépôt ne contient pas
