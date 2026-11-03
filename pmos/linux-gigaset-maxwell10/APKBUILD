@@ -55,8 +55,10 @@ build() {
 		zImage modules dtbs
 
 	# Cale goshim (1 Kio, position-indépendante) placée devant le zImage
-	"${CC:-gcc}" -nostdlib -static -Wl,-Ttext=0 -Wl,-e,_start -Wl,--build-id=none \
-		-o goshim.elf "$srcdir/goshim.S"
+	# Assemblage par le compilateur, mais édition de liens directe par ld :
+	# le gcc d'Alpine produit du PIE par défaut (.gnu.hash qui chevauche .text à 0).
+	"${CC:-gcc}" -c -o goshim.o "$srcdir/goshim.S"
+	"${CROSS_COMPILE}ld" -Ttext=0 -e _start --build-id=none -o goshim.elf goshim.o
 	"${CROSS_COMPILE}objcopy" -O binary -j .text goshim.elf goshim.bin
 	[ "$(wc -c < goshim.bin)" -eq 1024 ] || die "goshim.bin ne fait pas 1024 octets"
 }
