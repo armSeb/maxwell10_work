@@ -14,8 +14,9 @@ Carte observée : `max10`, révision matérielle 9.
 | NOR SPI | Winbond **W25Q16** (2 Mo) sur **ecspi4**, CS = GPIO3_IO20 — U-Boot (1 Mo) + jffs2 `vendor_gigaset` (1 Mo) |
 | Carte SD | **usdhc4** (`0x219c000`), 4 bits, CD = GPIO2_IO6, WP = GPIO2_IO7 |
 
-Le noyau vendeur affiche `snvs-secvio ... trusted state` : le secure boot HAB est peut-être fermé
-(à confirmer via OCOTP `CFG5`). En pratique, U-Boot accepte un boot.img non signé (voir [boot.md](boot.md)).
+Secure boot HAB **fermé** (`HAB_CFG_CLOSED`, état `TRUSTED`) : U-Boot authentifie le noyau du boot.img
+(voir [boot.md](boot.md#secure-boot-hab--fermé)). Le noyau vendeur réserve un crash log en RAM
+(`crash_log_resource` à `0x3ff40000`, `0x3ff80000`, `0x3ffc0000`, nœud `gc,panic-handler`).
 
 ## Périphériques
 

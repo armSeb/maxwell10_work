@@ -9,13 +9,53 @@
 
 ## Bootloader
 
-- U-Boot NXP (~2014) **sur la NOR SPI** (W25Q16, 1er Mo), pas sur l'eMMC.
+- U-Boot Freescale **2009.08** (build Gigaset `2009.08.maxwell.gc.014`, nov. 2015) **sur la NOR SPI** (W25Q16, 1er Mo), pas sur l'eMMC.
+- Environnement NOR invalide (`bad CRC, using default environment`) : ne **pas** lancer `saveenv` avant d'avoir dumpé la NOR.
+- `bootdelay` à 0.
 - Console sur **UART2** (`ttymxc1`) 115200 8N1.
 - `adb reboot bootloader` → fastboot, également en `18d1:0d02`
   (Manufacturer `Freescale`, Product `i.mx6q maxwell`, numéro de série par défaut du BSP).
 - Fastboot **protocole 0.5** : seules `version`, `product`, `serialno` répondent à `getvar`,
   pas de commandes `oem`, **aucune notion de verrouillage**.
-- **`fastboot boot <boot.img>` fonctionne** : U-Boot accepte un boot.img v0 non signé et saute dans le noyau.
+- `fastboot boot <boot.img>` télécharge et lance l'image, **mais le noyau passe par l'authentification HAB** :
+  un zImage non signé est refusé (voir ci-dessous). Le fastboot annonce aussi `flash target is MMC:0` : ne pas utiliser `fastboot flash`.
+
+## Secure boot (HAB) : fermé
+
+Relevé sur la console UART2 :
+
+```
+HAB Configuration: 0xcc, HAB State: 0x99
+```
+
+`0xcc` = `HAB_CFG_CLOSED`, `0x99` = `HAB_STATE_TRUSTED` : les fusibles de secure boot sont grillés.
+La ROM authentifie U-Boot, puis U-Boot authentifie **le noyau** du boot.img (`Authenticate uImage from DDR location …`),
+au boot normal comme en `fastboot boot`. Conséquences :
+
+- noyau mainline non signé refusé ; mode Serial Download (`uuu`) limité aux images signées ; JTAG probablement verrouillé ;
+- **seul le noyau est authentifié** d'après les traces : ramdisk et ligne de commande du boot.img sont pris tels quels.
+  Piste : noyau Gigaset signé, intact, + ramdisk et cmdline à nous.
+
+Échec observé avec l'image de dump mainline :
+
+```
+Authenticate uImage from DDR location 0x14008000...
+--------- HAB Event 1 -----------------
+event data:
+        0xdb 0x00 0x08 0x41 0x33 0x05 0x0a 0x00
+Authentication Failed
+```
+
+Décodage : statut `0x33` `HAB_FAILURE`, raison `0x05` `HAB_INV_IVT`, contexte `0x0a` `HAB_CTX_AUTHENTICATE` → pas d'IVT/CSF derrière le noyau.
+
+Adresses du boot.img vendeur (boot normal) : noyau @ `0x10808000`, ramdisk @ `0x11800000`, soit base `0x10800000`.
+En `fastboot boot`, U-Boot respecte les adresses de l'en-tête. L'IVT d'un noyau signé contient sa propre adresse :
+pour réutiliser le noyau vendeur, garder **exactement** `kernel_addr = 0x10808000`.
+
+## Console série
+
+UART2 (`ttymxc1`) 115200 8N1, accessible sur des pads de la carte (TX côté i.MX : niveau 3,3 V au repos).
+Écoute seule recommandée (GND + RX de l'adaptateur), adaptateur 3,3 V, résistance série sur le RX.
 
 ### Paramètres boot.img utilisés
 
