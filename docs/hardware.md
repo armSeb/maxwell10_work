@@ -12,7 +12,7 @@ Carte observée : `max10`, révision matérielle 9.
 | RAM | 2 Go @ `0x10000000` (CMA vendeur : 384 Mo) |
 | eMMC | 3,68 Gio (`SEM04G`) sur **usdhc3** (`0x2198000`), 8 bits, `mmcblk2` |
 | NOR SPI | Winbond **W25Q16** (2 Mo) sur **ecspi4**, CS = GPIO3_IO20 — U-Boot (1 Mo) + jffs2 `vendor_gigaset` (1 Mo) |
-| Carte SD | **usdhc4** (`0x219c000`), 4 bits, CD = GPIO2_IO6, WP = GPIO2_IO7 |
+| Carte SD | lecteur **microSD** sous un cache, **usdhc4** (`0x219c000`), 4 bits, CD = GPIO2_IO6, WP = GPIO2_IO7 ; `mmc 1` dans U-Boot |
 
 Secure boot HAB **fermé** (`HAB_CFG_CLOSED`, état `TRUSTED`) : U-Boot authentifie le noyau du boot.img
 (voir [boot.md](boot.md#secure-boot-hab--fermé)). Le noyau vendeur réserve un crash log en RAM

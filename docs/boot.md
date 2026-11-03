@@ -83,6 +83,24 @@ authentification HAB** : on charge un binaire en RAM (`loady`, `tftpboot`, `fatl
 Pour un zImage, [tools/goshim](../tools/goshim/) remet le CPU dans l'état attendu par Linux
 (caches, L2, MMU, registres) avant de sauter.
 
+### Boot automatique depuis la microSD ✅
+
+Un lecteur **microSD** (usdhc4) se trouve sous un cache. U-Boot le voit en `mmc 1` et lit le FAT.
+Carte : MBR, p1 FAT contenant `go.bin` (goshim + zImage + DTB, cf. [tools/goshim](../tools/goshim/)),
+p2 ext4 réservée au rootfs.
+
+Environnement U-Boot (une fois, `saveenv`) — l'eMMC n'est pas modifiée :
+
+```
+setenv android '<bootcmd par défaut d'origine>'
+setenv bootcmd 'mmc dev 1 && fatload mmc 1:1 0x12000000 go.bin && go 0x12000000; run android'
+saveenv
+```
+
+Carte absente ou `go.bin` introuvable → retour à Android. Retirer la carte suffit pour revenir au boot d'origine.
+
+`ext2load` (ext4 à extents) fige ce U-Boot : ne pas l'utiliser.
+
 ### Charger le zImage depuis l'eMMC, déposé par Android (sans root)
 
 Évite la console série pour le transfert (`loady` à 115200 : ~10 min pour 6 Mo) et le TFTP.
