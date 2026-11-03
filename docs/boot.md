@@ -83,6 +83,37 @@ authentification HAB** : on charge un binaire en RAM (`loady`, `tftpboot`, `fatl
 Pour un zImage, [tools/goshim](../tools/goshim/) remet le CPU dans l'état attendu par Linux
 (caches, L2, MMU, registres) avant de sauter.
 
+### Charger le zImage depuis l'eMMC, déposé par Android (sans root)
+
+Évite la console série pour le transfert (`loady` à 115200 : ~10 min pour 6 Mo) et le TFTP.
+
+- `ext2load` d'U-Boot 2009.08 ne sait pas lire l'ext4 à extents : inutilisable sur `/data`.
+- Mais l'utilisateur `shell` (adb) peut écrire dans `/data/local/tmp` et obtenir l'emplacement physique
+  de **son** fichier par l'ioctl `FIEMAP` (non privilégié, contrairement à `FIBMAP`).
+- Côté U-Boot, `mmc read` lit des secteurs bruts : lecture seule, sans risque.
+
+[tools/fiemap2uboot](../tools/fiemap2uboot/) fait le calcul (début de la partition lu dans
+`/sys/dev/block/M:m/start`, extents, CRC32) et imprime les commandes U-Boot :
+
+```sh
+sh tools/goshim/build.sh zImage-dtb go.bin
+sh tools/fiemap2uboot/build.sh
+adb push go.bin tools/fiemap2uboot/fiemap2uboot /data/local/tmp/
+adb shell /data/local/tmp/fiemap2uboot -i /data/local/tmp/go.bin /data/local/tmp/go.raw
+```
+
+`-i` recopie le fichier en le préallouant (`fallocate`) pour qu'il soit contigu : une seule ligne `mmc read`.
+Prérequis : `/data` **non chiffré** (`getprop ro.crypto.state` → `unencrypted` ; l'outil refuse un device-mapper).
+
+Puis dans U-Boot :
+
+1. **numéro de périphérique MMC** : l'eMMC est sur usdhc3, son index U-Boot n'est pas connu d'avance
+   (`mmcinfo`, `help mmc` pour la syntaxe). La première commande générée lit le superbloc de la partition :
+   `md.w` doit afficher `ef53`. Sinon, changer `-d` ;
+2. `mmc read …` ; 3. `crc32 …` doit donner la valeur annoncée ; 4. `go`.
+
+Ne pas supprimer ni réécrire `go.raw` entre la génération des commandes et le boot : ses blocs changeraient.
+
 Commandes à ne **jamais** utiliser sans sauvegarde : `saveenv`, `destroyenv`, `erase`, `protect`,
 `sf erase`/`sf write`, `mmc write`, `fastboot flash`, et surtout `imxotp` en écriture (fusibles, irréversible).
 

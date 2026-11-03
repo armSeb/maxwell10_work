@@ -14,6 +14,7 @@ Cible : **postmarketOS** sur noyau **mainline**, avec un démon maison pour la b
 | Console UART2 (U-Boot 2009.08 + noyau) | ✅ [docs/boot.md](docs/boot.md#console-série) |
 | Fastboot U-Boot, `fastboot boot` en RAM | ⚠️ HAB fermé : noyau signé exigé — [docs/boot.md](docs/boot.md#secure-boot-hab--fermé) |
 | Noyau mainline 6.12 + DT minimal pour dump | ✅ démarre via `go` + [tools/goshim](tools/goshim/) — [dump/](dump/), [dts/imx6q-maxwell-dump.dts](dts/imx6q-maxwell-dump.dts) |
+| Chargement du noyau depuis `/data` (FIEMAP + `mmc read` + `go`) | 🧪 [tools/fiemap2uboot](tools/fiemap2uboot/) — à valider sur la tablette |
 | Dump eMMC / NOR | ⏳ |
 | Root Android (boot.img patché) | ⏳ |
 | Protocole DECT CMBS (DVF99) | 🔍 en cours — [docs/dect-cmbs.md](docs/dect-cmbs.md) |
