@@ -14,12 +14,31 @@
 
 	chosen {
 		stdout-path = &uart2;
-		bootargs = "console=ttymxc1,115200 earlycon=ec_imx6q,0x021e8000 loglevel=8 rdinit=/init";
+		bootargs = "console=ttymxc1,115200 earlycon=ec_imx6q,0x021e8000 loglevel=8 rdinit=/init panic=10";
 	};
 
 	memory@10000000 {
 		device_type = "memory";
 		reg = <0x10000000 0x80000000>;
+	};
+
+	/* Témoins de debug sans UART : rétroéclairage (tout/rien) et ventilateur */
+	leds {
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_dbgleds>;
+
+		backlight {
+			label = "dbg-backlight";
+			gpios = <&gpio4 29 GPIO_ACTIVE_HIGH>;	/* DISP0_DAT8, PWM1 en vendeur */
+			default-state = "on";
+		};
+
+		fan {
+			label = "dbg-fan";
+			gpios = <&gpio4 23 GPIO_ACTIVE_HIGH>;	/* gpio-fan vendeur */
+			linux,default-trigger = "heartbeat";
+		};
 	};
 
 	reg_3p3v: regulator-3p3v {
@@ -79,6 +98,13 @@
 		fsl,pins = <
 			0x0bc 0x3d0 0x000 0x4 0x0 0x1b0b1
 			0x0c0 0x3d4 0x928 0x4 0x1 0x1b0b1
+		>;
+	};
+
+	pinctrl_dbgleds: dbgledsgrp {
+		fsl,pins = <
+			0x190 0x4a4 0x000 0x5 0x0 0x1b0b0	/* DISP0_DAT8 -> GPIO4_IO29 */
+			0x178 0x48c 0x000 0x5 0x0 0x0b0b1	/* DISP0_DAT2 -> GPIO4_IO23 (ventilo) */
 		>;
 	};
 

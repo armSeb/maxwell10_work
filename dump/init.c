@@ -62,6 +62,27 @@ static int wait_for(const char *path, int seconds)
 	return -1;
 }
 
+/* Témoin visuel : rétroéclairage piloté en tout/rien */
+static void bl(int on)
+{
+	int fd = open("/sys/class/leds/dbg-backlight/brightness", O_WRONLY);
+	if (fd >= 0) {
+		write(fd, on ? "1" : "0", 1);
+		close(fd);
+	}
+}
+
+static void blink(int n, int ms)
+{
+	for (int i = 0; i < n; i++) {
+		bl(0);
+		usleep(ms * 1000);
+		bl(1);
+		usleep(ms * 1000);
+	}
+	usleep(1000000);
+}
+
 static int nlun;
 
 static void add_lun(const char *dev)
@@ -141,9 +162,14 @@ int main(void)
 	mount("configfs", "/cfg", "configfs", 0, NULL);
 
 	logk("démarrage\n");
+	blink(1, 400);			/* étape 1 : init lancé */
 
-	if (wait_for("/dev/mmcblk2", 20))
+	if (wait_for("/dev/mmcblk2", 20)) {
 		logk("ATTENTION : /dev/mmcblk2 introuvable\n");
+		blink(6, 120);		/* eMMC absent : clignotement rapide */
+	} else {
+		blink(2, 400);		/* étape 2 : eMMC vu */
+	}
 
 	mkdir(G, 0755);
 	wr(G "/idVendor", "0x1d6b");
@@ -183,8 +209,10 @@ int main(void)
 	if (udc[0]) {
 		wr(G "/UDC", udc);
 		logk("gadget lié à %s, %d LUN(s)\n", udc, nlun);
+		blink(3, 400);		/* étape 3 : gadget USB actif */
 	} else {
 		logk("ERREUR : aucun UDC\n");
+		bl(0);			/* pas d'UDC : écran éteint */
 	}
 
 	if (fork() == 0)
