@@ -52,6 +52,16 @@ Adresses du boot.img vendeur (boot normal) : noyau @ `0x10808000`, ramdisk @ `0x
 En `fastboot boot`, U-Boot respecte les adresses de l'en-tête. L'IVT d'un noyau signé contient sa propre adresse :
 pour réutiliser le noyau vendeur, garder **exactement** `kernel_addr = 0x10808000`.
 
+## Contournement : commande `go`
+
+La console U-Boot est accessible (taper une touche au reset). `go <addr>` saute à une adresse **sans
+authentification HAB** : on charge un binaire en RAM (`loady`, `tftpboot`, `fatload`) et on l'exécute.
+Pour un zImage, [tools/goshim](../tools/goshim/) remet le CPU dans l'état attendu par Linux
+(caches, L2, MMU, registres) avant de sauter.
+
+Commandes à ne **jamais** utiliser sans sauvegarde : `saveenv`, `destroyenv`, `erase`, `protect`,
+`sf erase`/`sf write`, `mmc write`, `fastboot flash`, et surtout `imxotp` en écriture (fusibles, irréversible).
+
 ## Console série
 
 UART2 (`ttymxc1`) 115200 8N1, accessible sur des pads de la carte (TX côté i.MX : niveau 3,3 V au repos).
