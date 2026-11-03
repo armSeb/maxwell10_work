@@ -121,3 +121,6 @@ CONFIG_IMX2_WDT=y
 CONFIG_IMX_THERMAL=y
 CONFIG_SENSORS_ISL29018=m
 CONFIG_GPIO_SYSFS=n
+
+# --- Inutile ici, et exige python3 au build (en-têtes générés en 6.12) ---
+# CONFIG_DRM_MSM is not set
