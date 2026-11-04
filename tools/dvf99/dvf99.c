@@ -1193,7 +1193,7 @@ static void *aud_play(void *arg)
 	int16_t s[2 * AUD_FR], h[2 * AUD_FR], buf[AUD_CH * AUD_FR];
 	int fd = -1;
 	unsigned long periods = 0, xruns = 0;
-	double stat = now() + 60.0;
+	double stat = now() + 15.0;
 	while (!stop_req) {
 		if (fd < 0) {
 			int c = aud_card();
@@ -1217,7 +1217,8 @@ static void *aud_play(void *arg)
 		periods++;
 		if (now() > stat) {
 			/* attendu : 3000 périodes par minute (20 ms) */
-			if (!quiet || xruns) out("audio : 1 min : %lu périodes, %lu sous-débits\n", periods, xruns);
+			out("audio : 1 min : %lu périodes (attendu ~3000), %lu sous-débits, tampon HP %u ms\n",
+			    periods, xruns, spk.n / 16);
 			periods = xruns = 0; stat = now() + 60.0;
 		}
 	}
