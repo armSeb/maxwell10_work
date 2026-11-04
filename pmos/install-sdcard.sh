@@ -5,6 +5,7 @@
 #   pmos/install-sdcard.sh /dev/sdX            # UI par défaut : phosh
 #   UI=xfce4 pmos/install-sdcard.sh /dev/sdX   # ou buffyboard, cage, console…
 #   APORTS=~/src/pmaports pmos/install-sdcard.sh /dev/sdX   # clone pmaports ailleurs
+#   REUSE_IMAGE=1 pmos/install-sdcard.sh /dev/sdX   # réécrire la dernière image, sans rien reconstruire
 #
 # Prérequis : pmbootstrap installé, `pmbootstrap init` lancé au moins une fois
 # (n'importe quel appareil : il sert à créer la config et le clone pmaports) ;
@@ -57,42 +58,47 @@ printf 'Tout le contenu de %s sera EFFACÉ. Retaper le chemin pour confirmer : '
 read -r answer
 [ "$answer" = "$dev" ] || die "confirmation incorrecte, rien n'a été fait"
 
-# --- 2. pmaports ------------------------------------------------------------
-step "Clone pmaports"
-# APORTS=… pour forcer le chemin ; sinon le clone par défaut dans le dossier de travail
 work=$(pmbootstrap config work 2>/dev/null) || die "pas de config pmbootstrap : lancer « pmbootstrap init » une fois"
-aports=${APORTS:-$work/cache_git/pmaports}
-[ -d "$aports/.git" ] || die "$aports n'est pas un clone git (pmbootstrap init ?)"
-git -C "$aports" fetch origin || die "git fetch du clone pmaports a échoué ($(git -C "$aports" remote get-url origin))"
-git -C "$aports" rev-parse --verify -q origin/main >/dev/null || \
-	die "origin/main absent dans $aports — branches distantes : $(git -C "$aports" branch -r | tr '\n' ' ')
-     (pmbootstrap et pmaports désaccordés : mettre pmbootstrap à jour, ou recloner pmaports, voir docs/postmarketos.md)"
-# avancer la copie de travail (le fetch seul laisse les recettes en retard sur le
-# dépôt binaire : « about to install … (local pmaports: …) »)
-if [ "$(git -C "$aports" rev-parse --abbrev-ref HEAD)" = main ]; then
-	git -C "$aports" merge -q --ff-only origin/main || \
-		echo "ATTENTION : avance rapide impossible dans $aports (modifications locales ?), on continue"
+
+if [ -n "${REUSE_IMAGE:-}" ]; then
+	step "Réutilisation de la dernière image construite (REUSE_IMAGE)"
 else
-	echo "ATTENTION : $aports n'est pas sur main, pas de mise à jour"
+	# --- 2. pmaports ------------------------------------------------------------
+	step "Clone pmaports"
+	# APORTS=… pour forcer le chemin ; sinon le clone par défaut dans le dossier de travail
+	aports=${APORTS:-$work/cache_git/pmaports}
+	[ -d "$aports/.git" ] || die "$aports n'est pas un clone git (pmbootstrap init ?)"
+	git -C "$aports" fetch origin || die "git fetch du clone pmaports a échoué ($(git -C "$aports" remote get-url origin))"
+	git -C "$aports" rev-parse --verify -q origin/main >/dev/null || \
+		die "origin/main absent dans $aports — branches distantes : $(git -C "$aports" branch -r | tr '\n' ' ')
+	     (pmbootstrap et pmaports désaccordés : mettre pmbootstrap à jour, ou recloner pmaports, voir docs/postmarketos.md)"
+	# avancer la copie de travail (le fetch seul laisse les recettes en retard sur le
+	# dépôt binaire : « about to install … (local pmaports: …) »)
+	if [ "$(git -C "$aports" rev-parse --abbrev-ref HEAD)" = main ]; then
+		git -C "$aports" merge -q --ff-only origin/main || \
+			echo "ATTENTION : avance rapide impossible dans $aports (modifications locales ?), on continue"
+	else
+		echo "ATTENTION : $aports n'est pas sur main, pas de mise à jour"
+	fi
+
+	# --- 3. paquets -------------------------------------------------------------
+	step "Paquets $device"
+	"$here/sync.sh" "$aports"
+	pmbootstrap checksum "linux-$device" "device-$device"
+
+	# --- 4. config ----------------------------------------------------------------
+	step "Configuration : device=$device, ui=$ui"
+	pmbootstrap config device "$device"
+	pmbootstrap config ui "$ui"
+	# Les UI GNOME/Plasma (phosh…) passent sur le canal systemd-edge : des chroots
+	# créés pour un autre canal font échouer l'installation. On les supprime
+	# (seulement les chroots : paquets construits et caches conservés).
+	pmbootstrap -y zap
+
+	# --- 5. installation dans une image --------------------------------------
+	step "Installation dans une image (compilation du noyau au premier passage : long)"
+	pmbootstrap install
 fi
-
-# --- 3. paquets -------------------------------------------------------------
-step "Paquets $device"
-"$here/sync.sh" "$aports"
-pmbootstrap checksum "linux-$device" "device-$device"
-
-# --- 4. config ----------------------------------------------------------------
-step "Configuration : device=$device, ui=$ui"
-pmbootstrap config device "$device"
-pmbootstrap config ui "$ui"
-# Les UI GNOME/Plasma (phosh…) passent sur le canal systemd-edge : des chroots
-# créés pour un autre canal font échouer l'installation. On les supprime
-# (seulement les chroots : paquets construits et caches conservés).
-pmbootstrap -y zap
-
-# --- 5. installation dans une image --------------------------------------
-step "Installation dans une image (compilation du noyau au premier passage : long)"
-pmbootstrap install
 img="$work/chroot_native/home/pmos/rootfs/$device.img"
 [ -f "$img" ] || die "image introuvable : $img"
 img_size=$(stat -c %s "$img")
