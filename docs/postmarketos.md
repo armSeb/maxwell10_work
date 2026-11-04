@@ -137,7 +137,8 @@ sauf mention contraire.
 | Bluetooth AR3002 | 🧪 | UART5 (`/dev/ttymxc4`, RTS/CTS, mode DTE) + rfkill-gpio sur GPIO4_IO07 (pkgrel 10) ; firmware `linux-firmware-ar3k` ; pas de serdev : `hciattach -s 115200 /dev/ttymxc4 ath3k 3000000 flow` (paquet `bluez-deprecated`) |
 | Caméra OV9740 | ⏳ | pas de pilote mainline (soc_camera retiré) : `pipeline start failed with -32` si une appli l'ouvre. Détails : [hardware.md](hardware.md#caméra-ov9740) |
 | HDMI | ⏳ | |
-| DECT / audio DVF99 | 🔍 | **pas de son** pour l'instant : la DVF99 reste dans son U-Boot. UART3 activé, outil [tools/dvf99](../tools/dvf99/) pour la démarrer et décoder le CMBS. Feuille de route : [dect-cmbs.md](dect-cmbs.md#sous-linux-mainline--premiers-pas) |
+| Haut-parleur (DVF99) | ✅ | carte ALSA **DVF99**, mono 16 kHz, en TDM sur SSI2 (patch `0003`). `dvf99.service` démarre la base, émule son EEPROM et ouvre le chemin haut-parleur au boot. Copier une fois le `nvram.bin` d'Android dans `/var/lib/dvf99/nvram.bin` (propre à l'appareil, jamais dans le dépôt). Volume : gain fixe (`DVF99_GAIN` dans `/etc/default/dvf99`) + volume logiciel PipeWire. Détails : [dect-cmbs.md](dect-cmbs.md#configuration-tdm-et-carte-alsa-pkgrel-11) |
+| DECT (combiné) | 🔍 | la base joint le combiné (décroché, touche verte vus dans `journalctl -u dvf99`) ; pas encore de gestion d'appel ni de micro |
 
 ## Optimisations
 

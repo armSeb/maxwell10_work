@@ -158,5 +158,5 @@ CONFIG_IOSCHED_BFQ=y
 CONFIG_BT_HCIUART_ATH3K=y
 CONFIG_RFKILL_GPIO=y
 
-# Audio DVF99 (TDM sur SSI2) : codec factice « linux,spdif-dit » pour simple-audio-card
-CONFIG_SND_SOC_SPDIF=y
+# Audio DVF99 (TDM sur SSI2) : lien PCM 16 kHz mono (patch 0003)
+CONFIG_SND_SOC_DVF9919=y

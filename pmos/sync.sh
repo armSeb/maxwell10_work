@@ -11,6 +11,7 @@ k="$here/linux-gigaset-maxwell10"
 
 cp "$top/dts/imx6q-gigaset-maxwell10.dts" "$k/"
 cp "$top/tools/goshim/goshim.S" "$k/"
+cp "$top/tools/dvf99/dvf99.c" "$here/device-gigaset-maxwell10/"
 [ -f "$k/config-gigaset-maxwell10.armv7" ] || {
 	echo "manque $k/config-gigaset-maxwell10.armv7 (voir pmos/README.md)" >&2; exit 1; }
 

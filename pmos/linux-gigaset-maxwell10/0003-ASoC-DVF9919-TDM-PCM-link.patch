@@ -1,0 +1,151 @@
+From: Maxwell 10 port
+Subject: [PATCH] ASoC: add the DSPG DVF9919 TDM PCM link, allow mono TDM on fsl_ssi
+
+The DVF9919 of the Gigaset Maxwell 10 takes 16 kHz mono linear PCM as two
+samples per 8 kHz TDM frame, in two consecutive 16-bit slots. Its audio front
+end is driven by CMBS from userspace, so the codec side is a stub that only
+constrains the stream (16 kHz, mono, S16_LE).
+
+fsl_ssi forced Normal mode for mono streams, which breaks such a layout:
+keep Network mode when a TDM layout of more than two slots was set.
+---
+diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
+index 709284248..07b61fec0 100644
+--- a/sound/soc/codecs/Kconfig
++++ b/sound/soc/codecs/Kconfig
+@@ -1839,6 +1839,13 @@ config SND_SOC_SMA1303
+ config SND_SOC_SPDIF
+ 	tristate "S/PDIF CODEC"
+ 
++config SND_SOC_DVF9919
++	tristate "DSPG DVF9919 TDM PCM link"
++	help
++	  PCM side of the DSPG DVF9919 DECT base/audio chip (Gigaset Maxwell 10):
++	  16 kHz mono over TDM. Its audio front end is controlled from userspace
++	  through the CMBS protocol.
++
+ config SND_SOC_SRC4XXX_I2C
+ 	tristate "Texas Instruments SRC4XXX DIR/DIT and SRC codecs"
+ 	depends on I2C
+diff --git a/sound/soc/codecs/Makefile b/sound/soc/codecs/Makefile
+index 54cbc3fea..96ee5240c 100644
+--- a/sound/soc/codecs/Makefile
++++ b/sound/soc/codecs/Makefile
+@@ -272,6 +272,7 @@ snd-soc-sigmadsp-regmap-y := sigmadsp-regmap.o
+ snd-soc-si476x-y := si476x.o
+ snd-soc-sma1303-y := sma1303.o
+ snd-soc-spdif-tx-y := spdif_transmitter.o
++snd-soc-dvf9919-y := dvf9919.o
+ snd-soc-spdif-rx-y := spdif_receiver.o
+ snd-soc-src4xxx-y := src4xxx.o
+ snd-soc-src4xxx-i2c-y := src4xxx-i2c.o
+@@ -673,6 +674,7 @@ obj-$(CONFIG_SND_SOC_SIGMADSP_REGMAP)	+= snd-soc-sigmadsp-regmap.o
+ obj-$(CONFIG_SND_SOC_SI476X)	+= snd-soc-si476x.o
+ obj-$(CONFIG_SND_SOC_SMA1303)	+= snd-soc-sma1303.o
+ obj-$(CONFIG_SND_SOC_SPDIF)	+= snd-soc-spdif-rx.o snd-soc-spdif-tx.o
++obj-$(CONFIG_SND_SOC_DVF9919)	+= snd-soc-dvf9919.o
+ obj-$(CONFIG_SND_SOC_SRC4XXX)	+= snd-soc-src4xxx.o
+ obj-$(CONFIG_SND_SOC_SRC4XXX_I2C)	+= snd-soc-src4xxx-i2c.o
+ obj-$(CONFIG_SND_SOC_SSM2305)	+= snd-soc-ssm2305.o
+diff --git a/sound/soc/codecs/dvf9919.c b/sound/soc/codecs/dvf9919.c
+new file mode 100644
+index 000000000..b90f2fc6b
+--- /dev/null
++++ b/sound/soc/codecs/dvf9919.c
+@@ -0,0 +1,77 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * DSPG DVF9919 (DECT base + audio front end) — TDM side of its PCM link
++ *
++ * The DVF9919 of the Gigaset Maxwell 10 has no control bus towards ASoC: its
++ * audio front end (DACs, amplifiers, microphones, routing, gains) is driven by
++ * the CMBS protocol over a UART, from userspace. This component only describes
++ * the PCM stream the DVF9919 expects on its TDM bus once userspace has opened
++ * a wideband linear PCM channel: 16 kHz, mono, 16-bit (two samples per 8 kHz
++ * TDM frame, in two consecutive 16-bit slots, see the board DT).
++ */
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <sound/soc.h>
++
++static const struct snd_soc_dapm_widget dvf9919_widgets[] = {
++	SND_SOC_DAPM_OUTPUT("SPK"),
++	SND_SOC_DAPM_INPUT("MIC"),
++};
++
++static const struct snd_soc_dapm_route dvf9919_routes[] = {
++	{ "SPK", NULL, "Playback" },
++	{ "Capture", NULL, "MIC" },
++};
++
++static const struct snd_soc_component_driver dvf9919_component = {
++	.dapm_widgets		= dvf9919_widgets,
++	.num_dapm_widgets	= ARRAY_SIZE(dvf9919_widgets),
++	.dapm_routes		= dvf9919_routes,
++	.num_dapm_routes	= ARRAY_SIZE(dvf9919_routes),
++	.idle_bias_on		= 1,
++	.use_pmdown_time	= 1,
++	.endianness		= 1,
++};
++
++static struct snd_soc_dai_driver dvf9919_dai = {
++	.name = "dvf9919-pcm",
++	.playback = {
++		.stream_name	= "Playback",
++		.channels_min	= 1,
++		.channels_max	= 1,
++		.rates		= SNDRV_PCM_RATE_16000,
++		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
++	},
++	.capture = {
++		.stream_name	= "Capture",
++		.channels_min	= 1,
++		.channels_max	= 1,
++		.rates		= SNDRV_PCM_RATE_16000,
++		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
++	},
++};
++
++static int dvf9919_probe(struct platform_device *pdev)
++{
++	return devm_snd_soc_register_component(&pdev->dev, &dvf9919_component,
++					       &dvf9919_dai, 1);
++}
++
++static const struct of_device_id dvf9919_of_match[] = {
++	{ .compatible = "dspg,dvf9919-pcm" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, dvf9919_of_match);
++
++static struct platform_driver dvf9919_driver = {
++	.driver = {
++		.name		= "dvf9919-pcm",
++		.of_match_table	= dvf9919_of_match,
++	},
++	.probe = dvf9919_probe,
++};
++module_platform_driver(dvf9919_driver);
++
++MODULE_DESCRIPTION("DSPG DVF9919 TDM PCM link");
++MODULE_LICENSE("GPL");
+diff --git a/sound/soc/fsl/fsl_ssi.c b/sound/soc/fsl/fsl_ssi.c
+index 320108beb..c94102b37 100644
+--- a/sound/soc/fsl/fsl_ssi.c
++++ b/sound/soc/fsl/fsl_ssi.c
+@@ -850,8 +850,12 @@ static int fsl_ssi_hw_params(struct snd_pcm_substream *substream,
+ 		if (fsl_ssi_is_i2s_bc_fp(ssi) && sample_size == 16)
+ 			i2s_net = SSI_SCR_I2S_MODE_NORMAL | SSI_SCR_NET;
+ 
+-		/* Use Normal mode to send mono data at 1st slot of 2 slots */
+-		if (channels == 1)
++		/*
++		 * Use Normal mode to send mono data at 1st slot of 2 slots,
++		 * unless a TDM layout was set: then a mono stream may be spread
++		 * over several active slots and Network mode must stay.
++		 */
++		if (channels == 1 && ssi->slots <= 2)
+ 			i2s_net = SSI_SCR_I2S_MODE_NORMAL;
+ 
+ 		regmap_update_bits(regs, REG_SSI_SCR,

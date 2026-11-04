@@ -1,0 +1,17 @@
+# Base DECT / audio DSPG DVF9919 (protocole CMBS sur /dev/ttymxc2) :
+# démarre sa pile, émule son EEPROM et ouvre le chemin haut-parleur, pour que la
+# carte ALSA « DVF99 » (mono 16 kHz) soit utilisable. Voir docs/dect-cmbs.md.
+[Unit]
+Description=Base DECT et haut-parleur (DVF9919, CMBS)
+After=systemd-udevd.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/dvf99
+ExecStart=/usr/libexec/dvf99-service
+StateDirectory=dvf99
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

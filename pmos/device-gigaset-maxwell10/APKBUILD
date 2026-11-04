@@ -2,7 +2,7 @@
 pkgname=device-gigaset-maxwell10
 pkgdesc="Gigaset Maxwell 10"
 pkgver=1
-pkgrel=4
+pkgrel=5
 url="https://github.com/armSeb/maxwell10_work"
 license="MIT"
 arch="armv7"
@@ -12,14 +12,21 @@ depends="
 	linux-gigaset-maxwell10
 	"
 makedepends="devicepkg-dev"
+install="$pkgname.post-install"
 subpackages="$pkgname-nonfree-firmware:nonfree_firmware"
 source="
 	deviceinfo
 	60-maxwell-ioscheduler.rules
+	dvf99.c
+	dvf99.service
+	dvf99-service
+	80-gigaset-maxwell10.preset
 	"
 
 build() {
 	devicepkg_build $startdir $pkgname
+	# outil CMBS de la base DECT / audio (tools/dvf99 du dépôt)
+	${CC:-gcc} $CFLAGS -Wall -o dvf99 "$srcdir"/dvf99.c
 }
 
 package() {
@@ -27,6 +34,13 @@ package() {
 
 	install -Dm644 "$srcdir"/60-maxwell-ioscheduler.rules \
 		"$pkgdir"/usr/lib/udev/rules.d/60-maxwell-ioscheduler.rules
+
+	install -Dm755 dvf99 "$pkgdir"/usr/bin/dvf99
+	install -Dm755 "$srcdir"/dvf99-service "$pkgdir"/usr/libexec/dvf99-service
+	install -Dm644 "$srcdir"/dvf99.service \
+		"$pkgdir"/usr/lib/systemd/system/dvf99.service
+	install -Dm644 "$srcdir"/80-gigaset-maxwell10.preset \
+		"$pkgdir"/usr/lib/systemd/system-preset/80-gigaset-maxwell10.preset
 }
 
 nonfree_firmware() {

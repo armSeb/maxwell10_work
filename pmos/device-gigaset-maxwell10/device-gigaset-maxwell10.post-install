@@ -1,0 +1,5 @@
+#!/bin/sh
+# active le service DVF99 sur une installation existante (les images neuves
+# appliquent déjà le preset)
+systemctl preset dvf99.service >/dev/null 2>&1 || true
+exit 0

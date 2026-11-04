@@ -19,3 +19,6 @@ tools/fiemap2uboot/fiemap2uboot
 tools/mdio-scan/mdio-scan
 tools/dvf99/dvf99
 tools/ssireg/ssireg
+pmos/linux-gigaset-maxwell10/imx6q-gigaset-maxwell10.dts
+pmos/linux-gigaset-maxwell10/goshim.S
+pmos/device-gigaset-maxwell10/dvf99.c

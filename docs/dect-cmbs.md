@@ -375,3 +375,18 @@ Si `aplay` échoue au bout de quelques secondes (« Input/output error »), la D
 d'horloge : essayer `-T 1` côté `dvf99` et un SSI maître dans le DT. Si le son est saturé ou haché, la
 synchro est probablement décalée d'un bit : essayer `dsp_a` / `dsp_b` / `i2s` dans
 `simple-audio-card,format`.
+
+### Sortie « out of the box » (noyau pkgrel 12, device pkgrel 5)
+
+- **Noyau** : patch `0003-ASoC-DVF9919-TDM-PCM-link` — composant ASoC `dspg,dvf9919-pcm` (aucun
+  registre : il impose seulement 16 kHz, mono, S16_LE) et, dans `fsl_ssi`, le mode réseau gardé pour un
+  flux mono quand une disposition TDM de plus de deux slots est définie. Le DT n'active que les mots 4
+  et 5 : un échantillon 16 kHz sur deux dans chacun, exactement le format WB du woofer. ALSA, PipeWire et
+  Phosh voient une sortie mono 16 kHz ordinaire.
+- **Tweeter** : `dvf99` le démarre sur les **mêmes slots** que le woofer (`-W 0x0F00`, défaut) au lieu
+  des slots 4..7 d'Android ; `-W 0x00F0` revient au schéma d'Android (tweeter muet sans flux dédié),
+  `-W 0` le laisse éteint.
+- **Paquet device** : `/usr/bin/dvf99`, `dvf99.service` (activé par preset), lanceur
+  `/usr/libexec/dvf99-service` : `dvf99 -q -g 32 [-e /var/lib/dvf99/nvram.bin] service`. Mode `service` =
+  init + chemin haut-parleur ouvert en permanence ; `-q` limite le journal aux événements spontanés
+  (combiné, appels). Réglages dans `/etc/default/dvf99` (`DVF99_NVRAM`, `DVF99_GAIN`, `DVF99_OPTS`).

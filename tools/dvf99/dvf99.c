@@ -32,6 +32,12 @@
  *                                         -g 32..36 : 0 à −24 dB (défaut 34 = −12) ;
  *                                         -w : durée ; -k : laisse le chemin ouvert ;
  *                                         -S 22 : micro (DIFFIN0) → HP, sans TDM
+ *                                         -W SLOTS : slots du tweeter (défaut 0x0F00, les
+ *                                         mêmes que le woofer ; Android : 0x00F0 ; 0 : aucun)
+ *   dvf99 [-q] [-e NVRAM] [-g GAIN] service
+ *                                         pour systemd : init + chemin haut-parleur ouvert
+ *                                         en permanence (carte ALSA « DVF99 », mono 16 kHz) ;
+ *                                         -q : journal réduit aux événements utiles
  *
  * Sous Android, CMBSServer pulse le reset de la DVF99, envoie « run bootm » à son
  * U-Boot, puis parle CMBS. Sous mainline, personne ne le fait : la DVF99 reste
@@ -62,7 +68,11 @@
 
 static FILE *journal;
 static int unsafe;
+static int quiet;		/* -q : pas de trames détaillées (service) */
+static unsigned tweeter_slots = 0x0F00;	/* -W : slots du tweeter (Android : 0x00F0) */
 static int tdm_type = 0;	/* -T : 0 maître (Android), 1 esclave, -1 sans config */
+
+#define dbg(...) do { if (!quiet) out(__VA_ARGS__); } while (0)
 
 static double now(void)
 {
@@ -278,6 +288,7 @@ struct decoder {
 	int want_seen;
 	uint8_t wparams[MAX_PARAMS];	/* paramètres de l'événement attendu */
 	unsigned wlen;
+	int shown;		/* trame courante affichée (-q) */
 	uint8_t hello[8];	/* paramètres du dernier HELLO_RPLY */
 	unsigned hello_len;
 	int prompt;		/* invite « DVF99 # » du U-Boot du module vue */
@@ -323,9 +334,14 @@ static void feed(struct decoder *d, uint8_t c)
 			unsigned nr = d->hdr[2] | d->hdr[3] << 8;
 			unsigned ev = d->hdr[4] | d->hdr[5] << 8;
 			unsigned plen = d->hdr[6] | d->hdr[7] << 8;
-			out("[%8.3f] CMBS  paquet %u  événement %u (0x%04x) %s  "
-			    "longueur totale %u, paramètres %u\n",
-			    now() - d->t0, nr, ev, ev, event_name(ev), total, plen);
+			/* en mode -q : seulement les événements spontanés utiles
+			 * (combiné, appels…), pas les réponses ni l'EEPROM */
+			d->shown = !quiet || !(ev == 76 || ev == 78 || (ev >= 0xff00) ||
+				   strstr(event_name(ev), "_RES") || ev == 260 || ev == 125);
+			if (d->shown)
+				out("[%8.3f] CMBS  paquet %u  événement %u (0x%04x) %s  "
+				    "longueur totale %u, paramètres %u\n",
+				    now() - d->t0, nr, ev, ev, event_name(ev), total, plen);
 			d->frames++;
 			d->last_ev = ev;
 			if (plen > MAX_PARAMS) {
@@ -340,8 +356,8 @@ static void feed(struct decoder *d, uint8_t c)
 	case 2:
 		d->params[d->got++] = c;
 		if (d->got == d->need) {
-			hexdump(d->params, d->need);
-			ie_print(d->params, d->need);
+			if (!quiet) hexdump(d->params, d->need);
+			if (d->shown) ie_print(d->params, d->need);
 			d->state = 0;
 			on_frame(d, d->last_ev, d->params, d->need);
 		}
@@ -362,6 +378,7 @@ static int read_for(int fd, struct decoder *d, double seconds)
 		if (poll(&p, 1, ms > 0 ? ms : 0) <= 0) continue;
 		uint8_t buf[256];
 		ssize_t n = read(fd, buf, sizeof buf);
+		if (n < 0 && errno != EAGAIN && errno != EINTR) { perror("lecture UART"); return -1; }
 		for (ssize_t i = 0; i < n; i++)
 			feed(d, buf[i]);
 		if (d->frames > frames0) return 1;
@@ -381,7 +398,7 @@ static int send_msg(int fd, struct decoder *d, unsigned ev, const uint8_t *p, un
 	b[8] = ev & 0xff; b[9] = ev >> 8;
 	b[10] = n & 0xff; b[11] = n >> 8;
 	if (n) memcpy(b + 12, p, n);
-	out("[%8.3f] envoi CMBS : événement %u (0x%04x) %s, %u octet(s) de paramètres\n",
+	dbg("[%8.3f] envoi CMBS : événement %u (0x%04x) %s, %u octet(s) de paramètres\n",
 	    now() - d->t0, ev, ev, event_name(ev), n);
 	return write(fd, b, 4 + total) == (ssize_t)(4 + total) ? 0 : -1;
 }
@@ -450,7 +467,7 @@ static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned 
 		r[4] = area; put32(r + 5, off); put16(r + 9, dl);
 		if (dl) memcpy(r + 11, d->eep + off, dl);
 		rn = 11 + dl;
-		out("      → lecture EEPROM zone %u, offset 0x%x, %u octets : %s\n",
+		dbg("      → lecture EEPROM zone %u, offset 0x%x, %u octets : %s\n",
 		    area, off, len, ok ? "fournie" : d->eep ? "hors limites" : "pas d'EEPROM (-e)");
 	} else {
 		if (ok && l >= 7 + len) {
@@ -459,7 +476,7 @@ static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned 
 				perror("écriture EEPROM"); ok = 0;
 			}
 		} else ok = 0;
-		out("      → écriture EEPROM zone %u, offset 0x%x, %u octets : %s\n",
+		dbg("      → écriture EEPROM zone %u, offset 0x%x, %u octets : %s\n",
 		    area, off, len, ok ? "enregistrée" : "refusée");
 	}
 	put16(r + rn, IE_RESPONSE); put16(r + rn + 2, 1); r[rn + 4] = ok ? 0 : 1;
@@ -664,7 +681,7 @@ static int request(int fd, struct decoder *d, unsigned ev, const uint8_t *p, uns
 	/* la valeur suit E_CMBS_RESPONSE (0 OK, 1 erreur) ou E_CMBS_RC (5 erreur
 	 * générale…) selon la commande : on n'interprète que 0 */
 	if (rc == -2) out("   %s : réponse sans IE RESPONSE\n", what);
-	else if (rc == 0) out("   %s : OK\n", what);
+	else if (rc == 0) dbg("   %s : OK\n", what);
 	else out("   %s : REFUS (code %d)\n", what, rc);
 	return rc;
 }
@@ -866,10 +883,10 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 	}
 	if (dac) channel_start(fd, d, woofer, 0x0F00, 1);
 
-	if (dac) {
-		out("6) canal tweeter\n");
+	if (dac && tweeter_slots) {
+		out("6) canal tweeter (slots 0x%04x)\n", tweeter_slots);
 		if (!afe_alloc(fd, d, &tweeter))
-			channel_start(fd, d, tweeter, 0x00F0, 1);
+			channel_start(fd, d, tweeter, tweeter_slots, 1);
 	}
 
 	out("7) ampli du haut-parleur (GPIO D10 de la DVF99)\n");
@@ -934,7 +951,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -950,6 +967,8 @@ int main(int argc, char **argv)
 		case 'w': hold = atoi(optarg); break;
 		case 'k': keep = 1; break;
 		case 'T': tdm_type = atoi(optarg); break;
+		case 'q': quiet = 1; break;
+		case 'W': tweeter_slots = strtoul(optarg, NULL, 0); break;
 		default: goto usage;
 		}
 	}
@@ -979,10 +998,14 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
 	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel, src);
 	if (!strcmp(mode, "speaker")) return mode_speaker(fd, &d, src, gain, tone, hold, keep);
+	/* service : chemin haut-parleur ouvert en permanence, pour la carte ALSA
+	 * « DVF99 » (mono 16 kHz) ; s'arrête en erreur si l'UART disparaît */
+	if (!strcmp(mode, "service")) return mode_speaker(fd, &d, AFE_AMPOUT_IN_DAC0, gain, -1, 0, 1);
 usage:
 	fprintf(stderr, "usage : dvf99 [-d TTY] [-l JOURNAL] [-e NVRAM] [-U] console|boot|sniff|init\n"
 			"        dvf99 [-e NVRAM] [-a AMP 0..3] [-t TONALITÉ] [-s] [-S SOURCE] tone\n"
 			"        dvf99 [-e NVRAM] [-S SOURCE] [-g GAIN] [-t TONALITÉ|-1] [-w S] [-k] speaker\n"
+			"        dvf99 [-q] [-e NVRAM] [-g GAIN] [-W SLOTS] service\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;
 }
