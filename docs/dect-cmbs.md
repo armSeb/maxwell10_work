@@ -278,7 +278,7 @@ La bibliothèque décrit chaque « appareil » audio par une table de configurat
 
 | | Woofer (appareil 0) | Tweeter (appareil 1) |
 |---|---|---|
-| canal | `AFE_CHANNEL_ALLOCATE` ressource 0 → 0xF0 | idem → 0xF2 |
+| canal | `AFE_CHANNEL_ALLOCATE` ressource 0 (DAC/ADC) → 0xF0 | ressource **1 (classe D)** → 0xF2 |
 | liaisons | `AMP_OUT2` (27) ← `DAC0` (17) ; `AMP_OUT3` (28) ← `DAC0_INV` (19) : **pont** | aucune |
 | activation, gains | `ENABLE` 27, 28 ; gain 34 (−12 dB, réglage `amp_out2/3 = 2`) sur 27 et 28 | — |
 | canal média | `DEM_CHANNEL_START` : `MEDIADESCRIPTOR` {5, 2, [5, 6]} puis `MEDIACHANNEL` {0xF0, slots **0x0F00**, 0} | slots **0x00F0** |
@@ -390,3 +390,11 @@ synchro est probablement décalée d'un bit : essayer `dsp_a` / `dsp_b` / `i2s` 
   `/usr/libexec/dvf99-service` : `dvf99 -q -g 32 [-e /var/lib/dvf99/nvram.bin] service`. Mode `service` =
   init + chemin haut-parleur ouvert en permanence ; `-q` limite le journal aux événements spontanés
   (combiné, appels). Réglages dans `/etc/default/dvf99` (`DVF99_NVRAM`, `DVF99_GAIN`, `DVF99_OPTS`).
+
+### Volume (2026-11-04)
+
+- Paramètres CMBS 55/56 (`DAC1_VOL`/`DAC2_VOL`, `dvf99 param 55 56`) : valent `00 00` ; Android ne les
+  utilise que comme **sidetone** du combiné filaire (`appsrv_AFESetSidetoneValue`, remis à 0 ensuite) —
+  pas un volume de lecture, ne pas y toucher.
+- Le « tweeter » d'Android est alloué sur la ressource **classe D** (`AFE_RESOURCE_TYPE` = 1, relevé dans
+  `enableDevice`), pas DAC/ADC : c'est l'ampli intégré de la DVF99. `dvf99` l'alloue désormais ainsi.

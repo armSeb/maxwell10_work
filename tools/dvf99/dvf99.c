@@ -796,11 +796,13 @@ static unsigned ie_u8(uint8_t *b, unsigned at, unsigned type, unsigned val)
 	return ie_add(b, at, type, &v, 1);
 }
 
-static int afe_alloc(int fd, struct decoder *d, uint32_t *chan)
+/* ressource : 0 = DAC/ADC, 1 = classe D (ampli intégré) */
+static int afe_alloc(int fd, struct decoder *d, uint32_t *chan, int res)
 {
 	uint8_t b[16];
-	unsigned n = ie_u8(b, 0, IE_AFE_RESOURCE_TYPE, 0);	/* DAC/ADC */
-	if (request(fd, d, EV_AFE_CHANNEL_ALLOCATE, b, n, "AFE_CHANNEL_ALLOCATE")) return -1;
+	unsigned n = ie_u8(b, 0, IE_AFE_RESOURCE_TYPE, res);
+	if (request(fd, d, EV_AFE_CHANNEL_ALLOCATE, b, n,
+		    res ? "AFE_CHANNEL_ALLOCATE (classe D)" : "AFE_CHANNEL_ALLOCATE (DAC/ADC)")) return -1;
 	unsigned l;
 	const uint8_t *mc = ie_find(d->wparams, d->wlen, IE_MEDIACHANNEL, &l);
 	*chan = mc && l >= 4 ? le32(mc) : 0;
@@ -869,7 +871,7 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 	uint32_t woofer, tweeter = 0;
 
 	out("5) canal woofer\n");
-	if (afe_alloc(fd, d, &woofer)) return 4;
+	if (afe_alloc(fd, d, &woofer, 0)) return 4;
 	afe_connect(fd, d, o2, src);
 	afe_connect(fd, d, o3, dac ? AFE_AMPOUT_IN_DAC0_INV : AFE_AMPOUT_IN_MUTE);
 	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, o2, "AFE_ENDPOINT_ENABLE");
@@ -891,7 +893,8 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 
 	if (dac && tweeter_slots) {
 		out("6) canal tweeter (slots 0x%04x)\n", tweeter_slots);
-		if (!afe_alloc(fd, d, &tweeter))
+		/* Android alloue le « tweeter » sur la ressource classe D (1) */
+		if (!afe_alloc(fd, d, &tweeter, 1))
 			channel_start(fd, d, tweeter, tweeter_slots, 1);
 	}
 
