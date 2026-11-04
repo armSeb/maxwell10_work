@@ -107,9 +107,9 @@ Puis la carte dans la tablette, et l'environnement U-Boot ci-dessus.
 Accès : console série (`getty` sur `ttymxc1`), ou réseau USB par le mini-USB caché
 (`ssh user@172.16.42.1`), ou l'écran.
 
-## État des périphériques
+## État des périphériques (DT `dts/imx6q-gigaset-maxwell10.dts`)
 
-Premier boot réussi le 2026-11-04 (pmOS, UI buffyboard). (DT `dts/imx6q-gigaset-maxwell10.dts`)
+Premier boot réussi le 2026-11-04 (pmOS, UI buffyboard).
 
 Tout ce qui suit est **écrit d'après le DT vendeur, pas encore testé** sur le noyau mainline,
 sauf mention contraire.
