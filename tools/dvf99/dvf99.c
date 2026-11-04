@@ -357,7 +357,8 @@ static void feed(struct decoder *d, uint8_t c)
 			/* en mode -q : seulement les événements spontanés utiles
 			 * (combiné, appels…), pas les réponses ni l'EEPROM */
 			d->shown = !quiet || !(ev == 76 || ev == 78 || (ev >= 0xff00) ||
-				   strstr(event_name(ev), "_RES") || ev == 260 || ev == 125);
+				   (strstr(event_name(ev), "_RES") && ev != 62 && ev != 66 && ev != 53) ||
+				   ev == 260 || ev == 125);
 			if (d->shown)
 				out("[%8.3f] CMBS  paquet %u  événement %u (0x%04x) %s  "
 				    "longueur totale %u, paramètres %u\n",
