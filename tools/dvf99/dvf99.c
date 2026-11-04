@@ -540,10 +540,11 @@ static int request(int fd, struct decoder *d, unsigned ev, const uint8_t *p, uns
 	unsigned l;
 	const uint8_t *r = ie_find(d->wparams, d->wlen, IE_RESPONSE, &l);
 	int rc = r && l ? r[0] : -2;
-	static const char *rcs[] = { "OK", "manque de mémoire", "média indisponible", "média occupé",
-				     "paramètre invalide", "erreur générale", "non pris en charge" };
+	/* la valeur suit E_CMBS_RESPONSE (0 OK, 1 erreur) ou E_CMBS_RC (5 erreur
+	 * générale…) selon la commande : on n'interprète que 0 */
 	if (rc == -2) out("   %s : réponse sans IE RESPONSE\n", what);
-	else out("   %s : %s (%d)\n", what, rc < 7 ? rcs[rc] : "?", rc);
+	else if (rc == 0) out("   %s : OK\n", what);
+	else out("   %s : REFUS (code %d)\n", what, rc);
 	return rc;
 }
 
