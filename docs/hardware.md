@@ -30,8 +30,8 @@ Secure boot HAB **fermé** (`HAB_CFG_CLOSED`, état `TRUSTED`) : U-Boot authenti
 | Ethernet | FEC RGMII en fixed-link 1 Gb/s → **Marvell 88E6320** (DSA), ports `lan` (3), `pc` (4), CPU (5), reset GPIO1_IO9 | MDIO | mv88e6xxx |
 | Wi-Fi | Atheros **AR6003** hw 2.1.1 | SDIO usdhc1, reset GPIO1_IO8 | ath6kl_sdio |
 | Bluetooth | Atheros **AR3002** | UART + rfkill GPIO4_IO7 | hci_uart (ath3k) |
-| Audio BT (SCO) | AR3002 ↔ SSI2 | AUDMUX int 7 ↔ ext 5 | — |
-| **DECT + audio** | **DSPG DVF9919** | UART3 (`ttymxc2`), TDM ↔ SSI1, AUDMUX int 2 ↔ ext 4, reset GPIO4_IO22 | à écrire (voir [dect-cmbs.md](dect-cmbs.md)) |
+| Audio BT (SCO) | AR3002 ↔ SSI3 (`0x2030000`) | AUDMUX int 7 ↔ ext 5, pads DISP0_DAT16..19 | — |
+| **DECT + audio** | **DSPG DVF9919** | UART3 (`ttymxc2`), TDM ↔ SSI2 (`0x202c000`), AUDMUX int 2 ↔ ext 4 (pads SD2_DAT0..3), reset GPIO4_IO22 | à écrire (voir [dect-cmbs.md](dect-cmbs.md)) |
 | Caméra | OmniVision OV9740 (LED d'activité GPIO1_IO5, **active basse**) MIPI CSI-2 1 voie | i2c1 @ 0x10, PWDN GPIO5_IO24, reset GPIO5_IO23, LED GPIO1_IO5 | à voir (driver soc_camera retiré) |
 | VPU | CODA960 | — | coda |
 | GPU | Vivante GC2000 / GC320 / GC355 | — | etnaviv |
@@ -95,3 +95,12 @@ D'après le DT vendeur (`ov9740_mipi@10`, pilote vendeur 3.14) :
 caméra, la chaîne imx-media n'a pas de source : `imx-ipuv3-csi … pipeline start failed with -32` (EPIPE) quand
 une appli ouvre la caméra. Il faudra porter le pilote en sous-périphérique V4L2 (fwnode, CSI-2), décrire le
 capteur dans le DT, puis configurer les liens avec `media-ctl`.
+
+## Audio : pas de codec I2C
+
+Les trois bus I2C du DT vendeur ne portent aucune puce audio : i2c1 = caméra OV9740 (0x10), i2c2 = DDC HDMI
+(0x50), i2c3 = tactile FT5x06 (0x38). Tout l'audio analogique (haut-parleur, micros, combiné filaire) passe
+par l'AFE de la **DVF9919**, reliée en TDM au SSI2 ; le nœud `sound` vendeur (`fsl,dvf9919-audio`) n'est qu'une
+carte machine SSI2 + AUDMUX. Autres sorties son possibles : HDMI (dw-hdmi + `hdmi_audio`), Bluetooth SCO
+(AR3002 ↔ SSI3), USB.
+

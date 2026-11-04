@@ -12,7 +12,8 @@ La **DVF9919** (famille DSPG DVF99) fait à la fois :
 L'i.MX6 ne voit que :
 
 - **UART3** (`/dev/ttymxc2`, 115200 8N1, sans contrôle de flux) : console U-Boot de la DVF99, puis protocole CMBS ;
-- **TDM/PCM** entre la DVF99 et **SSI1**, via l'AUDMUX (port interne 2 ↔ port externe 4) ;
+- **TDM/PCM** entre la DVF99 et **SSI2** (`0x202c000`), via l'AUDMUX (port interne 2 ↔ port externe 4,
+  pads SD2_DAT0..3 = AUD4_RXD / TXFS / TXD / TXC) ;
 - **GPIO4_IO22** (gpio 118 du noyau vendeur) : reset de la DVF99, actif bas.
 
 Conséquence : sans piloter la DVF99 en CMBS, **aucune sortie audio**, même sur les haut-parleurs.
@@ -247,7 +248,7 @@ Ordre conseillé :
    l'UART3 (masse commune, aucune liaison vers l'émission), `cat /dev/ttyUSB0 > hote.bin` et
    `cat /dev/ttyUSB1 > dvf99.bin` pendant un démarrage d'Android, puis `dvf99 -f … sniff` ;
 5. rejouer cette séquence depuis Linux (démon `dvf99d` à écrire), puis décrire le lien audio TDM
-   (SSI1 ↔ AUDMUX int 2 ↔ ext 4) dans le DT.
+   (SSI2 ↔ AUDMUX int 2 ↔ ext 4) dans le DT.
 
 ⚠️ Pendant `bootm`, l'horloge fournie au switch pourrait sauter (cf. workaround vendeur « AFM-307 » qui
 relance les PHY) : faire ces essais par le Wi-Fi ou l'USB, et redémarrer si l'Ethernet tombe.
