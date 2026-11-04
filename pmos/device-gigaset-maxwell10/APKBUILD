@@ -23,6 +23,7 @@ source="
 	80-gigaset-maxwell10.preset
 	61-dvf99-pulseaudio.rules
 	dvf99.pa
+	dvf99-tmpfiles.conf
 	"
 
 build() {
@@ -46,6 +47,7 @@ package() {
 	install -Dm644 "$srcdir"/61-dvf99-pulseaudio.rules \
 		"$pkgdir"/usr/lib/udev/rules.d/61-dvf99-pulseaudio.rules
 	install -Dm644 "$srcdir"/dvf99.pa "$pkgdir"/etc/pulse/default.pa.d/dvf99.pa
+	install -Dm644 "$srcdir"/dvf99-tmpfiles.conf "$pkgdir"/usr/lib/tmpfiles.d/dvf99.conf
 }
 
 nonfree_firmware() {
