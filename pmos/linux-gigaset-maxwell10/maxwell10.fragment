@@ -157,3 +157,6 @@ CONFIG_IOSCHED_BFQ=y
 # --- Bluetooth AR3002 (UART5) et rfkill, pour la suite ---
 CONFIG_BT_HCIUART_ATH3K=y
 CONFIG_RFKILL_GPIO=y
+
+# Audio DVF99 (TDM sur SSI2) : codec factice « linux,spdif-dit » pour simple-audio-card
+CONFIG_SND_SOC_SPDIF=y

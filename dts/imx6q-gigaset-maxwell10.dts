@@ -15,6 +15,7 @@
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/sound/fsl-imx-audmux.h>
 #include "imx6q.dtsi"
 
 / {
@@ -136,6 +137,73 @@
 		compatible = "mmc-pwrseq-simple";
 		reset-gpios = <&gpio1 8 GPIO_ACTIVE_LOW>;
 		post-power-on-delay-ms = <10>;
+	};
+	/*
+	 * Audio de la DVF9919 (haut-parleur, micros, combiné filaire) : pas de codec
+	 * I2C, l'AFE est piloté par CMBS sur l'UART3 (tools/dvf99). Le flux PCM passe
+	 * en TDM sur SSI2 ↔ AUDMUX port 2 ↔ port 4 (pads SD2_DAT0..3).
+	 * HELLO CMBS d'Android : DVF99 maître TDM, PCM 2,048 MHz, synchro longue,
+	 * soit une trame 8 kHz de 32 octets = 16 mots de 16 bits.
+	 * Haut-parleur : woofer = octets 8..11 (mots 4, 5), tweeter = octets 4..7
+	 * (mots 2, 3), PCM linéaire 16 kHz = 2 échantillons par trame.
+	 * Côté ALSA : 8 kHz, 4 voies (mots 2..5) ; un flux mono 16 kHz se joue
+	 * tel quel en « stéréo 8 kHz » sur une paire de voies. Voir docs/dect-cmbs.md.
+	 * Le codec « spdif-dit » n'est qu'un codec factice (aucun registre).
+	 */
+	dvf99_codec: dvf99-codec {
+		compatible = "linux,spdif-dit";
+		#sound-dai-cells = <0>;
+	};
+
+	sound-dvf99 {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "DVF99";
+		simple-audio-card,format = "left_j";
+		simple-audio-card,bitclock-master = <&dvf99_link_codec>;
+		simple-audio-card,frame-master = <&dvf99_link_codec>;
+
+		simple-audio-card,cpu {
+			sound-dai = <&ssi2>;
+			dai-tdm-slot-num = <16>;
+			dai-tdm-slot-width = <16>;
+			dai-tdm-slot-tx-mask = <0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0>;
+			dai-tdm-slot-rx-mask = <0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0>;
+		};
+
+		dvf99_link_codec: simple-audio-card,codec {
+			sound-dai = <&dvf99_codec>;
+		};
+	};
+};
+
+&ssi2 {
+	status = "okay";
+};
+
+/* SSI2 (port 2) esclave : horloges et synchro reçues du port 4 (DVF99) */
+&audmux {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_audmux>;
+	status = "okay";
+
+	mux-ssi2 {
+		fsl,audmux-port = <MX51_AUDMUX_PORT2_SSI1>;
+		fsl,port-config = <
+			(IMX_AUDMUX_V2_PTCR_SYN |
+			 IMX_AUDMUX_V2_PTCR_TFSDIR |
+			 IMX_AUDMUX_V2_PTCR_TFSEL(MX51_AUDMUX_PORT4) |
+			 IMX_AUDMUX_V2_PTCR_TCLKDIR |
+			 IMX_AUDMUX_V2_PTCR_TCSEL(MX51_AUDMUX_PORT4))
+			IMX_AUDMUX_V2_PDCR_RXDSEL(MX51_AUDMUX_PORT4)
+		>;
+	};
+
+	mux-dvf99 {
+		fsl,audmux-port = <MX51_AUDMUX_PORT4>;
+		fsl,port-config = <
+			IMX_AUDMUX_V2_PTCR_SYN
+			IMX_AUDMUX_V2_PDCR_RXDSEL(MX51_AUDMUX_PORT2_SSI1)
+		>;
 	};
 };
 
@@ -510,6 +578,16 @@
 	pinctrl_usbotg: usbotggrp {
 		fsl,pins = <
 			0x224 0x5f4 0x004 0x3 0xff0d0101 0x17059	/* GPIO_1 USB_OTG_ID (via GPR1) */
+		>;
+	};
+
+	/* AUD4 ↔ DVF99 (TDM), réglages des pads du DT vendeur */
+	pinctrl_audmux: audmuxgrp {
+		fsl,pins = <
+			MX6QDL_PAD_SD2_DAT0__AUD4_RXD	0x1b0b0
+			MX6QDL_PAD_SD2_DAT3__AUD4_TXC	0x1b0b0
+			MX6QDL_PAD_SD2_DAT2__AUD4_TXD	0x1b0b0
+			MX6QDL_PAD_SD2_DAT1__AUD4_TXFS	0x1b0b0
 		>;
 	};
 

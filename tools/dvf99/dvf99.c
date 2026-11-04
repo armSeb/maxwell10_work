@@ -8,6 +8,9 @@
  *   dvf99 [-d TTY] [-l JOURNAL] [-e NVRAM] init
  *                                         boot si besoin, puis Hello et SYS_START
  *
+ * -T 0|1|-1 : configuration TDM du HELLO (0 = DVF99 maître, comme Android ;
+ * 1 = esclave ; -1 = HELLO vide, comportement des versions précédentes).
+ *
  * -e NVRAM : EEPROM émulée de la base (copie de /data/cmbs/nvram.bin d'Android,
  * propre à l'appareil). Avec elle, dvf99 répond aux demandes PARAM_AREA_GET de
  * la DVF99 et enregistre ses PARAM_AREA_SET dans ce fichier (travailler sur une
@@ -59,6 +62,7 @@
 
 static FILE *journal;
 static int unsafe;
+static int tdm_type = 0;	/* -T : 0 maître (Android), 1 esclave, -1 sans config */
 
 static double now(void)
 {
@@ -531,8 +535,17 @@ static int do_init(int fd, struct decoder *d)
 		out("   pas d'invite U-Boot : pile cordless supposée déjà démarrée\n");
 	}
 
-	out("2) Hello (sans configuration TDM)\n");
-	send_msg(fd, d, CMD_HELLO, NULL, 0);
+	if (tdm_type < 0) {
+		out("2) Hello (sans configuration TDM)\n");
+		send_msg(fd, d, CMD_HELLO, NULL, 0);
+	} else {
+		/* comme Android (tcx_TDMConfig) : ST_TDM_CONFIG {type, vitesse
+		 * PCM_2048 = 3, synchro LONG = 3, slots 0xFFFF} puis contrôle de flux
+		 * NONE. Type 0 = la DVF99 est maître de l'horloge TDM. */
+		uint8_t h[6] = { tdm_type, 3, 3, 0xff, 0xff, 0 };
+		out("2) Hello, TDM %s, PCM 2048 kHz, synchro longue\n", tdm_type ? "esclave" : "maître");
+		send_msg(fd, d, CMD_HELLO, h, sizeof h);
+	}
 	if (!wait_event(fd, d, CMD_HELLO_RPLY, 10.0)) {
 		out("=> pas de HELLO_RPLY en 10 s\n");
 		return 3;
@@ -921,7 +934,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:k")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -936,6 +949,7 @@ int main(int argc, char **argv)
 		case 'g': gain = atoi(optarg); break;
 		case 'w': hold = atoi(optarg); break;
 		case 'k': keep = 1; break;
+		case 'T': tdm_type = atoi(optarg); break;
 		default: goto usage;
 		}
 	}

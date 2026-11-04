@@ -322,3 +322,45 @@ Ordre conseillé :
 ⚠️ Pendant `bootm`, l'horloge fournie au switch pourrait sauter (cf. workaround vendeur « AFM-307 » qui
 relance les PHY) : faire ces essais par le Wi-Fi ou l'USB, et redémarrer si l'Ethernet tombe.
 
+
+## Configuration TDM et carte ALSA (pkgrel 11)
+
+Le `HELLO` de la bibliothèque hôte d'Android n'est pas vide : il porte la configuration TDM
+(`tcx_TDMConfig(1)`, journalisée « TDM configuration is: 1 ») puis le contrôle de flux :
+
+| Octet | Valeur | Sens |
+|---|---|---|
+| 0 | 0 | `CMBS_TDM_TYPE_MASTER` : la DVF99 fournit horloge et synchro |
+| 1 | 3 | `CMBS_TDM_PCM_2048` : 2,048 MHz |
+| 2 | 3 | `CMBS_TDM_SYNC_LONG` |
+| 3–4 | `FF FF` | slots autorisés |
+| 5 | 0 | `CMBS_FLOW_CTRL_NONE` |
+
+Nos premiers essais envoyaient un `HELLO` vide : la DVF99 n'avait aucune configuration TDM. `dvf99` envoie
+désormais celle d'Android (`-T 1` : DVF99 esclave, `-T -1` : ancien `HELLO` vide). Le `HELLO` n'est pris en
+compte qu'au démarrage de la pile : redémarrer la tablette pour que `dvf99` refasse `run bootm`.
+
+Trame : 2,048 MHz / 8 kHz = 256 bits = 32 octets = 16 mots de 16 bits. Les masques CMBS comptent en
+octets : woofer `0x0F00` = octets 8..11 = mots 4 et 5 ; tweeter `0x00F0` = mots 2 et 3. En PCM linéaire
+16 kHz, chaque paire de mots porte deux échantillons successifs.
+
+DT : `simple-audio-card` « DVF99 » sur SSI2, format `left_j` (synchro longue), SSI esclave, 16 slots de
+16 bits, voies 2..5 actives ; AUDMUX port 2 ← port 4 ; codec factice `linux,spdif-dit`
+(`CONFIG_SND_SOC_SPDIF`). Côté ALSA : 8 kHz, 4 voies, S16_LE — voies 0/1 = tweeter, 2/3 = woofer. Un flux
+mono 16 kHz se joue tel quel en « stéréo 8 kHz » sur une paire.
+
+Essai :
+
+```sh
+dvf99 -e nvram.bin -t -1 -k speaker &            # chemin haut-parleur ouvert, pas de tonalité
+speaker-test -D hw:DVF99 -c 4 -r 8000 -F S16_LE -t sine -f 500
+# un fichier : mono 16 kHz vers les voies du woofer
+ffmpeg -i son.mp3 -ac 1 -ar 16000 -f s16le - | \
+  sox -t raw -r 8000 -c 2 -e signed -b 16 - -t raw -c 4 - remix 0 0 1 2 | \
+  aplay -D hw:DVF99 -t raw -f S16_LE -r 8000 -c 4
+```
+
+Si `aplay` échoue au bout de quelques secondes (« Input/output error »), la DVF99 ne fournit pas
+d'horloge : essayer `-T 1` côté `dvf99` et un SSI maître dans le DT. Si le son est saturé ou haché, la
+synchro est probablement décalée d'un bit : essayer `dsp_a` / `dsp_b` / `i2s` dans
+`simple-audio-card,format`.
