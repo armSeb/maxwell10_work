@@ -169,6 +169,9 @@ l'en-tête d'IE `type u16, longueur u16`) :
 | `DEM_TONE_START` 67 / `STOP` 69 | `MEDIACHANNEL` 10 ; `TONE` 13 : u8 (0 = invitation à numéroter) |
 | `AFE_CHANNEL_DEALLOCATE` 249 | `MEDIACHANNEL` 10 |
 
+Après SYS_START, la DVF99 relit **toute** son EEPROM par blocs de 0xF0 (plusieurs secondes) ; une requête AFE
+envoyée pendant ce temps est refusée avec le code 5 (`CMBS_RC_ERROR_GENERAL`) : attendre la fin des lectures.
+
 Premier essai sans TDM : `dvf99 -e nvram.bin tone` — canal AFE, `AMP_OUT0..3 ← DAC0`, tonalité 5 s.
 Le haut-parleur qui sonne identifie la bonne sortie (`-a N` pour n'en tester qu'une).
 

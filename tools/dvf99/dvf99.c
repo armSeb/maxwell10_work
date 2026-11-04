@@ -464,7 +464,18 @@ static int do_init(int fd, struct decoder *d)
 	send_msg(fd, d, EV_SYS_START, NULL, 0);
 	if (!wait_event(fd, d, EV_SYS_START_RES, 10.0))
 		out("=> pas de SYS_START_RES en 10 s\n");
-	read_for(fd, d, 3.0);	/* laisser passer les lectures EEPROM de démarrage */
+	/* La DVF99 relit toute son EEPROM (blocs de 0xF0) après SYS_START et refuse
+	 * les requêtes AFE tant qu'elle n'a pas fini (erreur 5) : attendre 3 s de
+	 * silence, 90 s au plus. */
+	out("   attente de la fin de l'initialisation (3 s sans trame)\n");
+	double end = now() + 90.0;
+	unsigned quiet = 0;
+	while (now() < end && quiet < 3) {
+		unsigned f = d->frames;
+		read_for(fd, d, 1.0);
+		quiet = d->frames == f ? quiet + 1 : 0;
+	}
+	out("   initialisation %s\n", quiet >= 3 ? "terminée" : "toujours en cours après 90 s");
 	return 0;
 }
 
@@ -529,7 +540,10 @@ static int request(int fd, struct decoder *d, unsigned ev, const uint8_t *p, uns
 	unsigned l;
 	const uint8_t *r = ie_find(d->wparams, d->wlen, IE_RESPONSE, &l);
 	int rc = r && l ? r[0] : -2;
-	out("   %s : %s\n", what, rc == 0 ? "OK" : rc == -2 ? "réponse sans IE RESPONSE" : "ERREUR");
+	static const char *rcs[] = { "OK", "manque de mémoire", "média indisponible", "média occupé",
+				     "paramètre invalide", "erreur générale", "non pris en charge" };
+	if (rc == -2) out("   %s : réponse sans IE RESPONSE\n", what);
+	else out("   %s : %s (%d)\n", what, rc < 7 ? rcs[rc] : "?", rc);
 	return rc;
 }
 
