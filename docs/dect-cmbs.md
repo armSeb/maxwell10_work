@@ -154,6 +154,24 @@ cp ~/nvram.orig.bin ~/nvram.bin                                # copie de travai
 sudo umount /mnt/android-data
 ```
 
+## Audio local : AFE (relevé dans `cmbs_host`, à valider)
+
+La DVF99 a un AFE : DAC/ADC, amplis `AMP_OUT0..3`, entrées micro/ligne. Événements et IE (valeur après
+l'en-tête d'IE `type u16, longueur u16`) :
+
+| Requête (réponse = +1) | IE |
+|---|---|
+| `AFE_CHANNEL_ALLOCATE` 247 | `AFE_RESOURCE_TYPE` 88 : u8, 0 = DAC/ADC, 1 = classe D → réponse : `RESPONSE`, `AFE_INSTANCE_NUM` 89, `MEDIACHANNEL` 10 (n° de canal) |
+| `AFE_ENDPOINT_CONNECT` 236 | `AFE_ENDPOINT_CONNECT` 82 : u8 point « entrée » (ex. `AMP_OUT0` = 23), u8 sa source (ex. `AMPOUT_IN_DAC0` = 15) |
+| `AFE_ENDPOINT_ENABLE` 238 / `DISABLE` 240 | `AFE_ENDPOINT` 83 : u8 |
+| `AFE_ENDPOINT_GAIN` 242 | `AFE_ENDPOINT_GAIN` 84 : u8 point, s16 pas |
+| `DEM_CHANNEL_START` 61 | `MEDIACHANNEL` 10 : u32 canal, u32 masque de slots TDM, u8 type (0 = IOM) ; `MEDIADESCRIPTOR` 12 : u8 codec, u8 n, n codecs (5 = PCM linéaire WB, 6 = NB) |
+| `DEM_TONE_START` 67 / `STOP` 69 | `MEDIACHANNEL` 10 ; `TONE` 13 : u8 (0 = invitation à numéroter) |
+| `AFE_CHANNEL_DEALLOCATE` 249 | `MEDIACHANNEL` 10 |
+
+Premier essai sans TDM : `dvf99 -e nvram.bin tone` — canal AFE, `AMP_OUT0..3 ← DAC0`, tonalité 5 s.
+Le haut-parleur qui sonne identifie la bonne sortie (`-a N` pour n'en tester qu'une).
+
 ## Sous Linux mainline : premiers pas
 
 État : la DVF99 est **hors reset** (gpio-hog sur GPIO4_IO22, pour l'horloge du switch) et reste dans

@@ -13,6 +13,11 @@
  * la DVF99 et enregistre ses PARAM_AREA_SET dans ce fichier (travailler sur une
  * COPIE, garder l'original de côté).
  *   dvf99 -f CAPTURE sniff                décode un fichier brut (capture UART)
+ *   dvf99 [-e NVRAM] [-a 0..3] [-t N] [-s] tone
+ *                                         essai audio : canal AFE, AMP_OUTx ← DAC0,
+ *                                         tonalité N (0 = invitation à numéroter) 5 s ;
+ *                                         -a : une seule sortie (défaut : les 4) ;
+ *                                         -s : démarre aussi le canal média (TDM)
  *
  * Sous Android, CMBSServer pulse le reset de la DVF99, envoie « run bootm » à son
  * U-Boot, puis parle CMBS. Sous mainline, personne ne le fait : la DVF99 reste
@@ -121,6 +126,29 @@ static const char *event_name(unsigned id)
 	case 25:  return "CMBS_EV_DSR_SYS_START";
 	case 29:  return "CMBS_EV_DSR_SYS_STATUS";
 	case 30:  return "CMBS_EV_DSR_SYS_LOG";
+	case 61:  return "CMBS_EV_DEM_CHANNEL_START";
+	case 62:  return "CMBS_EV_DEM_CHANNEL_START_RES";
+	case 65:  return "CMBS_EV_DEM_CHANNEL_STOP";
+	case 66:  return "CMBS_EV_DEM_CHANNEL_STOP_RES";
+	case 67:  return "CMBS_EV_DEM_TONE_START";
+	case 68:  return "CMBS_EV_DEM_TONE_START_RES";
+	case 69:  return "CMBS_EV_DEM_TONE_STOP";
+	case 70:  return "CMBS_EV_DEM_TONE_STOP_RES";
+	case 236: return "CMBS_EV_DSR_AFE_ENDPOINT_CONNECT";
+	case 237: return "CMBS_EV_DSR_AFE_ENDPOINT_CONNECT_RES";
+	case 238: return "CMBS_EV_DSR_AFE_ENDPOINT_ENABLE";
+	case 240: return "CMBS_EV_DSR_AFE_ENDPOINT_DISABLE";
+	case 241: return "CMBS_EV_DSR_AFE_ENDPOINT_DISABLE_RES";
+	case 242: return "CMBS_EV_DSR_AFE_ENDPOINT_GAIN";
+	case 243: return "CMBS_EV_DSR_AFE_ENDPOINT_GAIN_RES";
+	case 244: return "CMBS_EV_DSR_AFE_AUX_MEASUREMENT";
+	case 246: return "CMBS_EV_DSR_AFE_AUX_MEASUREMENT_RESULT";
+	case 247: return "CMBS_EV_DSR_AFE_CHANNEL_ALLOCATE";
+	case 248: return "CMBS_EV_DSR_AFE_CHANNEL_ALLOCATE_RES";
+	case 249: return "CMBS_EV_DSR_AFE_CHANNEL_DEALLOCATE";
+	case 250: return "CMBS_EV_DSR_AFE_CHANNEL_DEALLOCATE_RES";
+	case 7:   return "CMBS_EV_DSR_HS_REGISTERED";
+	case 8:   return "CMBS_EV_DSR_HS_IN_RANGE";
 	case 74:  return "CMBS_EV_DSR_PARAM_UPDATED";
 	case 75:  return "CMBS_EV_DSR_PARAM_AREA_UPDATED";
 	case 76:  return "CMBS_EV_DSR_PARAM_AREA_GET";
@@ -166,6 +194,8 @@ struct decoder {
 	unsigned last_ev;
 	unsigned want;		/* événement attendu par wait_event */
 	int want_seen;
+	uint8_t wparams[MAX_PARAMS];	/* paramètres de l'événement attendu */
+	unsigned wlen;
 	uint8_t hello[8];	/* paramètres du dernier HELLO_RPLY */
 	unsigned hello_len;
 	int prompt;		/* invite « DVF99 # » du U-Boot du module vue */
@@ -216,7 +246,6 @@ static void feed(struct decoder *d, uint8_t c)
 			    now() - d->t0, nr, ev, ev, event_name(ev), total, plen);
 			d->frames++;
 			d->last_ev = ev;
-			if (ev == d->want) d->want_seen = 1;
 			if (plen > MAX_PARAMS) {
 				out("      longueur de paramètres incohérente, resynchronisation\n");
 				d->state = 0; return;
@@ -311,6 +340,11 @@ static const uint8_t *ie_find(const uint8_t *p, unsigned n, unsigned type, unsig
  */
 static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n)
 {
+	if (d->want && ev == d->want) {
+		d->wlen = n;
+		if (n) memcpy(d->wparams, p, n);
+		d->want_seen = 1;
+	}
 	if (ev == CMD_HELLO_RPLY) {
 		d->hello_len = n < sizeof d->hello ? n : sizeof d->hello;
 		memcpy(d->hello, p, d->hello_len);
@@ -402,7 +436,7 @@ static int mode_boot(int fd, struct decoder *d)
 	return 2;
 }
 
-static int mode_init(int fd, struct decoder *d)
+static int do_init(int fd, struct decoder *d)
 {
 	out("1) état de la DVF99\n");
 	if (write(fd, "\r", 1) != 1) { perror("write"); return 1; }
@@ -430,8 +464,125 @@ static int mode_init(int fd, struct decoder *d)
 	send_msg(fd, d, EV_SYS_START, NULL, 0);
 	if (!wait_event(fd, d, EV_SYS_START_RES, 10.0))
 		out("=> pas de SYS_START_RES en 10 s\n");
+	read_for(fd, d, 3.0);	/* laisser passer les lectures EEPROM de démarrage */
+	return 0;
+}
+
+static int mode_init(int fd, struct decoder *d)
+{
+	int r = do_init(fd, d);
+	if (r) return r;
 	out("4) écoute 60 s (réponses automatiques EEPROM si -e)\n");
 	read_for(fd, d, 60.0);
+	return 0;
+}
+
+/* ---------- audio : essai de tonalité sur le haut-parleur ------------------ */
+
+#define EV_DEM_TONE_START		67
+#define EV_DEM_TONE_START_RES		68
+#define EV_DEM_TONE_STOP		69
+#define EV_DEM_TONE_STOP_RES		70
+#define EV_DEM_CHANNEL_START		61
+#define EV_DEM_CHANNEL_START_RES	62
+#define EV_AFE_ENDPOINT_CONNECT		236
+#define EV_AFE_ENDPOINT_ENABLE		238
+#define EV_AFE_ENDPOINT_DISABLE		240
+#define EV_AFE_ENDPOINT_GAIN		242
+#define EV_AFE_CHANNEL_ALLOCATE		247
+#define EV_AFE_CHANNEL_DEALLOCATE	249
+#define IE_MEDIACHANNEL			10
+#define IE_MEDIADESCRIPTOR		12
+#define IE_TONE				13
+#define IE_AFE_ENDPOINT_CONNECT		82
+#define IE_AFE_ENDPOINT			83
+#define IE_AFE_ENDPOINT_GAIN		84
+#define IE_AFE_RESOURCE_TYPE		88
+#define IE_AFE_INSTANCE_NUM		89
+#define AFE_AMPOUT_IN_DAC0		15
+#define AFE_AMP_OUT0			23
+
+static unsigned ie_add(uint8_t *b, unsigned at, unsigned type, const uint8_t *v, unsigned n)
+{
+	put16(b + at, type); put16(b + at + 2, n);
+	if (n) memcpy(b + at + 4, v, n);
+	return at + 4 + n;
+}
+
+static unsigned ie_media_channel(uint8_t *b, unsigned at, uint32_t id, uint32_t param)
+{
+	uint8_t v[9];
+	put32(v, id); put32(v + 4, param); v[8] = 0;	/* CMBS_MEDIA_TYPE_AUDIO_IOM */
+	return ie_add(b, at, IE_MEDIACHANNEL, v, sizeof v);
+}
+
+/* envoie une requête, attend « ev + 1 », affiche l'IE RESPONSE ; 0 = OK */
+static int request(int fd, struct decoder *d, unsigned ev, const uint8_t *p, unsigned n, const char *what)
+{
+	send_msg(fd, d, ev, p, n);
+	d->want = ev + 1; d->want_seen = 0;
+	double end = now() + 5.0;
+	while (now() < end && !d->want_seen)
+		read_for(fd, d, end - now());
+	d->want = 0;
+	if (!d->want_seen) { out("   %s : pas de réponse\n", what); return -1; }
+	unsigned l;
+	const uint8_t *r = ie_find(d->wparams, d->wlen, IE_RESPONSE, &l);
+	int rc = r && l ? r[0] : -2;
+	out("   %s : %s\n", what, rc == 0 ? "OK" : rc == -2 ? "réponse sans IE RESPONSE" : "ERREUR");
+	return rc;
+}
+
+static int mode_tone(int fd, struct decoder *d, int amp, int tone, int start_channel)
+{
+	if (do_init(fd, d)) return 1;
+	uint8_t b[64]; unsigned n; uint8_t v[4];
+
+	out("5) allocation d'un canal AFE (ressource DAC/ADC)\n");
+	v[0] = 0;
+	n = ie_add(b, 0, IE_AFE_RESOURCE_TYPE, v, 1);
+	if (request(fd, d, EV_AFE_CHANNEL_ALLOCATE, b, n, "AFE_CHANNEL_ALLOCATE")) return 4;
+	unsigned l; uint32_t chan = 0;
+	const uint8_t *mc = ie_find(d->wparams, d->wlen, IE_MEDIACHANNEL, &l);
+	if (mc && l >= 4) chan = le32(mc);
+	const uint8_t *in = ie_find(d->wparams, d->wlen, IE_AFE_INSTANCE_NUM, &l);
+	out("   canal %u, instance %d\n", chan, in && l ? in[0] : -1);
+
+	int first = amp < 0 ? 0 : amp, last = amp < 0 ? 3 : amp;
+	for (int a = first; a <= last; a++) {
+		out("6) AMP_OUT%d ← DAC0, activation\n", a);
+		v[0] = AFE_AMP_OUT0 + a; v[1] = AFE_AMPOUT_IN_DAC0;
+		n = ie_add(b, 0, IE_AFE_ENDPOINT_CONNECT, v, 2);
+		request(fd, d, EV_AFE_ENDPOINT_CONNECT, b, n, "AFE_ENDPOINT_CONNECT");
+		n = ie_add(b, 0, IE_AFE_ENDPOINT, v, 1);
+		request(fd, d, EV_AFE_ENDPOINT_ENABLE, b, n, "AFE_ENDPOINT_ENABLE");
+	}
+
+	if (start_channel) {
+		out("7) démarrage du canal (PCM linéaire NB, slots 0x0003)\n");
+		uint8_t desc[4] = { 6, 2, 6, 5 };	/* codec, nombre, liste */
+		n = ie_media_channel(b, 0, chan, 0x0003);
+		n = ie_add(b, n, IE_MEDIADESCRIPTOR, desc, sizeof desc);
+		request(fd, d, EV_DEM_CHANNEL_START, b, n, "DEM_CHANNEL_START");
+	}
+
+	out("8) tonalité %d pendant 5 s : écoute le haut-parleur\n", tone);
+	v[0] = tone;
+	n = ie_media_channel(b, 0, chan, 0);
+	n = ie_add(b, n, IE_TONE, v, 1);
+	request(fd, d, EV_DEM_TONE_START, b, n, "DEM_TONE_START");
+	read_for(fd, d, 5.0);
+	n = ie_media_channel(b, 0, chan, 0);
+	request(fd, d, EV_DEM_TONE_STOP, b, n, "DEM_TONE_STOP");
+
+	out("9) libération\n");
+	for (int a = first; a <= last; a++) {
+		v[0] = AFE_AMP_OUT0 + a;
+		n = ie_add(b, 0, IE_AFE_ENDPOINT, v, 1);
+		request(fd, d, EV_AFE_ENDPOINT_DISABLE, b, n, "AFE_ENDPOINT_DISABLE");
+	}
+	n = ie_media_channel(b, 0, chan, 0);
+	request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE");
 	return 0;
 }
 
@@ -457,8 +608,9 @@ static int sniff_file(const char *path, struct decoder *d)
 int main(int argc, char **argv)
 {
 	const char *tty = "/dev/ttymxc2", *file = NULL, *eep = NULL;
+	int amp = -1, tone = 0, start_channel = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:U")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:s")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -466,6 +618,9 @@ int main(int argc, char **argv)
 		case 'f': file = optarg; break;
 		case 'e': eep = optarg; break;
 		case 'U': unsafe = 1; break;
+		case 'a': amp = atoi(optarg); break;
+		case 't': tone = atoi(optarg); break;
+		case 's': start_channel = 1; break;
 		default: goto usage;
 		}
 	}
@@ -493,8 +648,10 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "boot")) return mode_boot(fd, &d);
 	if (!strcmp(mode, "sniff")) return mode_sniff(fd, &d);
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
+	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel);
 usage:
 	fprintf(stderr, "usage : dvf99 [-d TTY] [-l JOURNAL] [-e NVRAM] [-U] console|boot|sniff|init\n"
+			"        dvf99 [-e NVRAM] [-a AMP 0..3] [-t TONALITÉ] [-s] tone\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;
 }
