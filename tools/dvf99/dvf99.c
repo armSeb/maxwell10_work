@@ -1245,7 +1245,9 @@ static void *aud_capture(void *arg)
 {
 	(void)arg;
 	int mic = -1;
-	double check = 0;
+	double check = 0, stat = now() + 15.0;
+	int peak[AUD_CH] = { 0 };
+	unsigned long periods = 0;
 	int16_t m[2 * AUD_FR], buf[AUD_CH * AUD_FR];
 	int fd = -1;
 	unsigned long xruns = 0;
@@ -1257,6 +1259,17 @@ static void *aud_capture(void *arg)
 		}
 		if (aud_xfer(fd, 1, buf, &xruns) < 0) { close(fd); fd = -1; sleep(1); continue; }
 		if (now() > check) { mic = aud_mic_fd(mic); check = now() + 2.0; }
+		/* diagnostic : crête de chaque voie reçue (mots 0..5 de la trame) */
+		periods++;
+		for (int i = 0; i < AUD_FR * AUD_CH; i++) {
+			int v = buf[i] < 0 ? -buf[i] : buf[i];
+			if (v > peak[i % AUD_CH]) peak[i % AUD_CH] = v;
+		}
+		if (now() > stat) {
+			out("audio : capture : %lu périodes, crêtes voies 0..5 : %d %d %d %d %d %d\n", periods,
+			    peak[0], peak[1], peak[2], peak[3], peak[4], peak[5]);
+			memset(peak, 0, sizeof peak); periods = 0; stat = now() + 15.0;
+		}
 		for (int i = 0; i < AUD_FR; i++) {
 			m[2 * i] = buf[AUD_CH * i];
 			m[2 * i + 1] = call_nb ? buf[AUD_CH * i] : buf[AUD_CH * i + 1];
