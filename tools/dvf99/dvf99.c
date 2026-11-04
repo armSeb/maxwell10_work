@@ -316,6 +316,8 @@ struct decoder {
 	 * exécutées par call_step hors du décodeur */
 	struct {
 		int active, answer, release, start, stop;
+		int tries;		/* essais de DEM_CHANNEL_START */
+		double retry_at;
 		uint32_t inst, chan;
 		int chan_known, started;
 	} call;
@@ -733,6 +735,19 @@ static int auto_answer = 1;	/* -N : ne pas décrocher automatiquement */
 
 static void call_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n)
 {
+	if (ev == EV_DEM_CHANNEL_START + 1 && d->call.active && d->call.started) {
+		unsigned rl;
+		const uint8_t *r = ie_find(p, n, IE_RESPONSE, &rl);
+		if (!ie_find(p, n, IE_MEDIACHANNEL_, &rl) && r && r[0]) {
+			/* refus (la base n'est parfois pas prête juste après ANSWER) : on réessaie */
+			d->call.started = 0;
+			if (d->call.tries < 6) {
+				d->call.start = 1; d->call.retry_at = now() + 0.3;
+				out("   appel : canal refusé (%u), nouvel essai\n", r[0]);
+			} else out("   appel : canal refusé (%u), abandon\n", r[0]);
+		}
+		return;
+	}
 	if (ev < 45 || ev > 60) return;		/* événements d'appel (DEE/DCM) */
 	unsigned l;
 	const uint8_t *ci = ie_find(p, n, IE_CALLINSTANCE, &l);
@@ -785,8 +800,8 @@ static void call_step(struct decoder *d)
 		out("   appel : CALL_ANSWER (décroché)\n");
 		call_send(d, EV_CALL_ANSWER, b, n);
 	}
-	if (d->call.start && d->call.chan_known) {
-		d->call.start = 0; d->call.started = 1;
+	if (d->call.start && d->call.chan_known && now() >= d->call.retry_at) {
+		d->call.start = 0; d->call.started = 1; d->call.tries++;
 		out("   appel : DEM_CHANNEL_START canal 0x%x, slots 0x%04x\n", d->call.chan, call_slots);
 		n = ie_media_channel(b, 0, d->call.chan, call_slots);
 		call_send(d, EV_DEM_CHANNEL_START, b, n);
@@ -1046,27 +1061,45 @@ static int aud_fifo(const char *name)
 	return fd;
 }
 
-/* lit jusqu'à n octets d'un tube, jette l'arriéré (> 120 ms), complète de zéros */
-static void aud_take(int fd, int16_t *v, size_t n)
+/* Tampon de gigue par tube : PulseAudio écrit par blocs à son rythme (horloge
+ * système), la DVF99 consomme 20 ms toutes les 20 ms (son horloge). On accumule,
+ * on ne rend une période qu'une fois 60 ms d'avance prises après un manque
+ * (sinon silence, pas de bribes), et on jette l'excédent au-delà de 200 ms. */
+#define JB_MAX		(16000 / 5)		/* 200 ms à 16 kHz */
+#define JB_PRIME	(16000 * 6 / 100)	/* 60 ms */
+struct jbuf { int fd; int16_t v[JB_MAX]; unsigned n; int primed; };
+
+static void jb_fill(struct jbuf *j)
 {
-	int avail = 0;
-	size_t got = 0;
-	if (fd >= 0 && ioctl(fd, FIONREAD, &avail) == 0 && (size_t)avail > 6 * n) {
-		uint8_t junk[4096];
-		size_t drop = avail - 2 * n;
-		while (drop) {
-			ssize_t r = read(fd, junk, drop < sizeof junk ? drop : sizeof junk);
-			if (r <= 0) break;
-			drop -= r;
-		}
-	}
-	while (fd >= 0 && got < n) {
-		ssize_t r = read(fd, (uint8_t *)v + got, n - got);
+	if (j->fd < 0) return;
+	for (;;) {
+		int16_t tmp[512];
+		ssize_t r = read(j->fd, tmp, sizeof tmp);
 		if (r <= 0) break;
-		got += r;
+		unsigned k = r / 2;
+		if (j->n + k > JB_MAX) {		/* trop d'avance : on jette le plus ancien */
+			unsigned drop = j->n + k - JB_MAX;
+			if (drop > j->n) drop = j->n;
+			memmove(j->v, j->v + drop, (j->n - drop) * 2);
+			j->n -= drop;
+		}
+		memcpy(j->v + j->n, tmp, k * 2);
+		j->n += k;
 	}
-	got &= ~(size_t)1;
-	memset((uint8_t *)v + got, 0, n - got);
+}
+
+static void jb_take(struct jbuf *j, int16_t *out_, unsigned k)
+{
+	jb_fill(j);
+	if (!j->primed && j->n >= JB_PRIME) j->primed = 1;
+	if (!j->primed || j->n < k) {
+		j->primed = 0;
+		memset(out_, 0, k * 2);
+		return;
+	}
+	memcpy(out_, j->v, k * 2);
+	memmove(j->v, j->v + k, (j->n - k) * 2);
+	j->n -= k;
 }
 
 static void hp_mask(struct snd_pcm_hw_params *p, int n, unsigned v)
@@ -1146,7 +1179,8 @@ static int aud_xfer(int fd, int capture, int16_t *buf, unsigned long *xruns)
 static void *aud_play(void *arg)
 {
 	(void)arg;
-	int spk = aud_fifo("speaker"), hs = aud_fifo("handset");
+	static struct jbuf spk, hs;
+	spk.fd = aud_fifo("speaker"); hs.fd = aud_fifo("handset");
 	int16_t s[2 * AUD_FR], h[2 * AUD_FR], buf[AUD_CH * AUD_FR];
 	int fd = -1;
 	unsigned long periods = 0, xruns = 0;
@@ -1157,8 +1191,8 @@ static void *aud_play(void *arg)
 			if (c < 0 || (fd = aud_open(c, 0)) < 0) { sleep(2); continue; }
 			out("audio : lecture ouverte (carte %d, 8 kHz, %d voies)\n", c, AUD_CH);
 		}
-		aud_take(spk, s, sizeof s);
-		aud_take(hs, h, sizeof h);
+		jb_take(&spk, s, 2 * AUD_FR);
+		jb_take(&hs, h, 2 * AUD_FR);
 		for (int i = 0; i < AUD_FR; i++) {
 			int16_t *f = buf + AUD_CH * i;
 			f[0] = h[2 * i]; f[1] = h[2 * i + 1];
