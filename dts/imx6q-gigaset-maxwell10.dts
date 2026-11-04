@@ -142,8 +142,9 @@
 	 * Audio de la DVF9919 (haut-parleur, micros, combiné filaire) : pas de codec
 	 * I2C, l'AFE est piloté par CMBS sur l'UART3 (tools/dvf99). Le flux PCM passe
 	 * en TDM sur SSI2 ↔ AUDMUX port 2 ↔ port 4 (pads SD2_DAT0..3).
-	 * HELLO CMBS d'Android : DVF99 maître TDM, PCM 2,048 MHz, synchro longue,
-	 * soit une trame 8 kHz de 32 octets = 16 mots de 16 bits.
+	 * HELLO CMBS d'Android : DVF99 maître TDM, PCM 2,048 MHz, soit une trame
+	 * 8 kHz de 32 octets = 16 mots de 16 bits ; synchro mesurée : impulsion
+	 * positive d'un bit. Échantillons 16 bits, poids fort en premier.
 	 * Haut-parleur : woofer = octets 8..11 (mots 4, 5), tweeter = octets 4..7
 	 * (mots 2, 3), PCM linéaire 16 kHz = 2 échantillons par trame.
 	 * Côté ALSA : 8 kHz, 4 voies (mots 2..5) ; un flux mono 16 kHz se joue
@@ -158,7 +159,10 @@
 	sound-dvf99 {
 		compatible = "simple-audio-card";
 		simple-audio-card,name = "DVF99";
+		/* mis au point à chaud avec tools/ssireg : STCR = 0x280 (synchro au
+		 * début du premier bit, données sur le front descendant) */
 		simple-audio-card,format = "left_j";
+		simple-audio-card,bitclock-inversion;
 		simple-audio-card,bitclock-master = <&dvf99_link_codec>;
 		simple-audio-card,frame-master = <&dvf99_link_codec>;
 

@@ -40,7 +40,6 @@ source="
 	goshim.S
 	0001-net-dsa-mv88e6xxx-pulse-reset-before-detection.patch
 	0002-thermal-imx-add-an-active-trip-for-fans.patch
-	0003-ASoC-accept-S16_BE-on-fsl_ssi-and-spdif-dit.patch
 	"
 builddir="$srcdir/linux-$pkgver"
 

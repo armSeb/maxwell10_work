@@ -344,7 +344,7 @@ Trame : 2,048 MHz / 8 kHz = 256 bits = 32 octets = 16 mots de 16 bits. Les masqu
 octets : woofer `0x0F00` = octets 8..11 = mots 4 et 5 ; tweeter `0x00F0` = mots 2 et 3. En PCM linéaire
 16 kHz, chaque paire de mots porte deux échantillons successifs.
 
-DT : `simple-audio-card` « DVF99 » sur SSI2, format `left_j` (synchro longue), SSI esclave, 16 slots de
+DT : `simple-audio-card` « DVF99 » sur SSI2, format `left_j` + `bitclock-inversion`, SSI esclave, 16 slots de
 16 bits, voies 2..5 actives ; AUDMUX port 2 ← port 4 ; codec factice `linux,spdif-dit`
 (`CONFIG_SND_SOC_SPDIF`). Côté ALSA : 8 kHz, 4 voies, S16_LE — voies 0/1 = tweeter, 2/3 = woofer. Un flux
 mono 16 kHz se joue tel quel en « stéréo 8 kHz » sur une paire.
@@ -359,6 +359,17 @@ ffmpeg -i son.mp3 -ac 1 -ar 16000 -f s16le - | \
   sox -t raw -r 8000 -c 2 -e signed -b 16 - -t raw -c 4 - remix 0 0 1 2 | \
   aplay -D hw:DVF99 -t raw -f S16_LE -r 8000 -c 4
 ```
+
+### Mise au point (2026-11-04, avec `tools/ssireg`)
+
+- `ssireg rate` : ~8000 synchros de trame par seconde, aucun sous-débit → la DVF99 est bien maître.
+- `ssireg fs` : synchro = **impulsion positive d'un bit** (et non « longue » malgré `CMBS_TDM_SYNC_LONG`).
+- Réglage à chaud de `STCR` pendant une lecture : **0x280** (synchro non inversée, sans avance, données
+  sur le front descendant de l'horloge) → musique **parfaite**. Les autres valeurs donnent souffle ou
+  bruit « binaire ». Ordre des octets naturel (poids fort en premier). Le mode I2S esclave du SSI
+  (`SCR` 0x105b) coupe le flux.
+- Piège : un sinus identique sur toutes les voies masque les erreurs d'alignement (un échantillon
+  « recollé » à cheval sur deux mots ressemble au bon) ; juger sur de la musique.
 
 Si `aplay` échoue au bout de quelques secondes (« Input/output error »), la DVF99 ne fournit pas
 d'horloge : essayer `-T 1` côté `dvf99` et un SSI maître dans le DT. Si le son est saturé ou haché, la
