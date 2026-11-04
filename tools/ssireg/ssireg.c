@@ -8,6 +8,9 @@
  *   ./ssireg              état décodé (SCR, STCR, STCCR, masques, SISR, AUDMUX)
  *   ./ssireg rate         mesure 1 s : synchros de trame vues (TFS) et sous-débits
  *   ./ssireg set REG VAL  écrit un registre (stcr, srcr, stccr, stmsk, srmsk, scr)
+ *   ./ssireg fs           mesure la synchro de trame venant de la DVF99 sur le pad
+ *                         SD2_DAT1 (lu par GPIO1_IO14, SION posé le temps de la
+ *                         mesure) : polarité et largeur en bits d'horloge
  *
  * Bits de STCR utiles : 0 TEFS (synchro 1 bit en avance), 1 TFSL (synchro d'1 bit
  * au lieu d'un mot), 2 TFSI (synchro inversée), 3 TSCKP (front d'horloge),
@@ -26,7 +29,13 @@
 #define SSI2_BASE	0x0202c000
 #define AUDMUX_BASE	0x021d8000
 
-static volatile uint32_t *ssi, *mux;
+#define IOMUXC_BASE	0x020e0000
+#define MUX_SD2_DAT1	0x04c		/* SW_MUX_CTL_PAD_SD2_DATA1 */
+#define GPIO1_BASE	0x0209c000
+#define GPIO_PSR	0x08
+#define FS_BIT		14		/* SD2_DAT1 = GPIO1_IO14 */
+
+static volatile uint32_t *ssi, *mux, *iomuxc, *gpio1;
 
 static const struct { const char *name; unsigned off; } regs[] = {
 	{ "scr", 0x10 }, { "sisr", 0x14 }, { "sier", 0x18 }, { "stcr", 0x1c },
@@ -101,13 +110,49 @@ static void rate(void)
 	printf("(trame attendue : 8000/s ; si les lectures sont trop lentes, valeur sous-estimée)\n");
 }
 
+/* La trame dure 256 coups d'horloge (2,048 MHz / 8 kHz) : la part du temps où
+ * la synchro est haute donne sa largeur en bits. */
+static void fs(void)
+{
+	uint32_t m = iomuxc[MUX_SD2_DAT1 / 4];
+	iomuxc[MUX_SD2_DAT1 / 4] = m | 0x10;			/* SION */
+	unsigned long n = 0, hi = 0, rise = 0, fall = 0;
+	unsigned prev = 0, run = 0, runmin = ~0u, runmax = 0;
+	double end = now() + 1.0;
+	while (now() < end)
+		for (int i = 0; i < 1000; i++) {
+			unsigned v = gpio1[GPIO_PSR / 4] >> FS_BIT & 1;
+			n++; hi += v;
+			if (v && !prev) { rise++; run = 0; }
+			if (v) run++;
+			if (!v && prev) {
+				fall++;
+				if (run < runmin) runmin = run;
+				if (run > runmax) runmax = run;
+			}
+			prev = v;
+		}
+	iomuxc[MUX_SD2_DAT1 / 4] = m;
+	printf("%lu lectures, %lu fronts montants, %lu descendants en 1 s\n", n, rise, fall);
+	if (!rise) { printf("pad figé à %u : pas de synchro lisible\n", prev); return; }
+	double duty = (double)hi / n;
+	printf("haute %.2f %% du temps → %.1f bits sur 256 (%s)\n", duty * 100, duty * 256,
+	       duty < 0.5 ? "impulsion positive" : "impulsion négative, active basse");
+	printf("impulsion : %u à %u lectures (%.2f µs par lecture)\n", runmin, runmax, 1e6 / n);
+}
+
 int main(int argc, char **argv)
 {
 	int fd = open("/dev/mem", O_RDWR | O_SYNC);
 	if (fd < 0) { perror("/dev/mem"); return 1; }
 	ssi = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, SSI2_BASE);
 	mux = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, AUDMUX_BASE);
-	if (ssi == MAP_FAILED || mux == MAP_FAILED) { perror("mmap"); return 1; }
+	iomuxc = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, IOMUXC_BASE);
+	gpio1 = mmap(NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_SHARED, fd, GPIO1_BASE);
+	if (ssi == MAP_FAILED || mux == MAP_FAILED || iomuxc == MAP_FAILED || gpio1 == MAP_FAILED) {
+		perror("mmap"); return 1;
+	}
+	if (argc == 2 && !strcmp(argv[1], "fs")) { fs(); return 0; }
 	if (argc == 1) { dump(); return 0; }
 	if (!strcmp(argv[1], "rate")) { rate(); return 0; }
 	if (!strcmp(argv[1], "set") && argc == 4) {
@@ -119,6 +164,6 @@ int main(int argc, char **argv)
 		printf("relu : 0x%08x\n", r(off));
 		return 0;
 	}
-	fprintf(stderr, "usage : ssireg [rate | set REG VAL]\n");
+	fprintf(stderr, "usage : ssireg [rate | fs | set REG VAL]\n");
 	return 2;
 }
