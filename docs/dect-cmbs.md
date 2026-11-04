@@ -175,6 +175,9 @@ envoyée pendant ce temps est refusée avec le code 5 (`CMBS_RC_ERROR_GENERAL`) 
 Premier essai (2026-11-04) : `AFE_CHANNEL_ALLOCATE` → OK, canal **0xF0**, instance 0 ; `AFE_ENDPOINT_CONNECT`
 et `ENABLE` sur `AMP_OUT0..3` ← DAC0 → OK ; `DEM_TONE_START` sans canal démarré → **refus (1)** ;
 `DISABLE`, `DEALLOCATE` → OK. La DVF99 émet aussi un second `TARGET_UP` à la fin de la relecture de l'EEPROM.
+Avec `-s` : `DEM_CHANNEL_START` (canal 0xF0, slots 0x0003, PCM linéaire NB) → **OK**, mais `DEM_TONE_START`
+toujours refusé : dans `cmbs_host`, les tonalités visent le canal d'un **appel DECT** (objet d'appel), pas un
+canal AFE local. Le canal AFE démarré devrait en revanche transporter le flux TDM de l'i.MX vers le DAC0.
 
 Premier essai sans TDM : `dvf99 -e nvram.bin tone` — canal AFE, `AMP_OUT0..3 ← DAC0`, tonalité 5 s.
 Le haut-parleur qui sonne identifie la bonne sortie (`-a N` pour n'en tester qu'une).

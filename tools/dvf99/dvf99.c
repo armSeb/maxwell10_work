@@ -18,6 +18,9 @@
  *                                         tonalité N (0 = invitation à numéroter) 5 s ;
  *                                         -a : une seule sortie (défaut : les 4) ;
  *                                         -s : démarre aussi le canal média (TDM)
+ *                                         -S N : source des amplis (E_CMBS_AFE_CHANNEL,
+ *                                         15 = DAC0 par défaut ; 19 SINGIN, 20/21
+ *                                         DIFFIN0/1 : liaison micro → ampli, sans tonalité)
  *
  * Sous Android, CMBSServer pulse le reset de la DVF99, envoie « run bootm » à son
  * U-Boot, puis parle CMBS. Sous mainline, personne ne le fait : la DVF99 reste
@@ -548,7 +551,7 @@ static int request(int fd, struct decoder *d, unsigned ev, const uint8_t *p, uns
 	return rc;
 }
 
-static int mode_tone(int fd, struct decoder *d, int amp, int tone, int start_channel)
+static int mode_tone(int fd, struct decoder *d, int amp, int tone, int start_channel, int src)
 {
 	if (do_init(fd, d)) return 1;
 	uint8_t b[64]; unsigned n; uint8_t v[4];
@@ -565,12 +568,20 @@ static int mode_tone(int fd, struct decoder *d, int amp, int tone, int start_cha
 
 	int first = amp < 0 ? 0 : amp, last = amp < 0 ? 3 : amp;
 	for (int a = first; a <= last; a++) {
-		out("6) AMP_OUT%d ← DAC0, activation\n", a);
-		v[0] = AFE_AMP_OUT0 + a; v[1] = AFE_AMPOUT_IN_DAC0;
+		out("6) AMP_OUT%d ← source %d, activation\n", a, src);
+		v[0] = AFE_AMP_OUT0 + a; v[1] = src;
 		n = ie_add(b, 0, IE_AFE_ENDPOINT_CONNECT, v, 2);
 		request(fd, d, EV_AFE_ENDPOINT_CONNECT, b, n, "AFE_ENDPOINT_CONNECT");
 		n = ie_add(b, 0, IE_AFE_ENDPOINT, v, 1);
 		request(fd, d, EV_AFE_ENDPOINT_ENABLE, b, n, "AFE_ENDPOINT_ENABLE");
+	}
+
+	if (src != AFE_AMPOUT_IN_DAC0) {
+		/* liaison analogique directe (entrée → ampli) : pas de canal média ni de
+		 * tonalité, on maintient 10 s pour écouter */
+		out("7) liaison analogique maintenue 10 s : parler dans le micro / écouter\n");
+		read_for(fd, d, 10.0);
+		goto release;
 	}
 
 	if (start_channel) {
@@ -590,6 +601,7 @@ static int mode_tone(int fd, struct decoder *d, int amp, int tone, int start_cha
 	n = ie_media_channel(b, 0, chan, 0);
 	request(fd, d, EV_DEM_TONE_STOP, b, n, "DEM_TONE_STOP");
 
+release:
 	out("9) libération\n");
 	for (int a = first; a <= last; a++) {
 		v[0] = AFE_AMP_OUT0 + a;
@@ -623,9 +635,9 @@ static int sniff_file(const char *path, struct decoder *d)
 int main(int argc, char **argv)
 {
 	const char *tty = "/dev/ttymxc2", *file = NULL, *eep = NULL;
-	int amp = -1, tone = 0, start_channel = 0;
+	int amp = -1, tone = 0, start_channel = 0, src = 15;	/* AMPOUT_IN_DAC0 */
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:s")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -636,6 +648,7 @@ int main(int argc, char **argv)
 		case 'a': amp = atoi(optarg); break;
 		case 't': tone = atoi(optarg); break;
 		case 's': start_channel = 1; break;
+		case 'S': src = atoi(optarg); break;
 		default: goto usage;
 		}
 	}
@@ -663,10 +676,10 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "boot")) return mode_boot(fd, &d);
 	if (!strcmp(mode, "sniff")) return mode_sniff(fd, &d);
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
-	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel);
+	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel, src);
 usage:
 	fprintf(stderr, "usage : dvf99 [-d TTY] [-l JOURNAL] [-e NVRAM] [-U] console|boot|sniff|init\n"
-			"        dvf99 [-e NVRAM] [-a AMP 0..3] [-t TONALITÉ] [-s] tone\n"
+			"        dvf99 [-e NVRAM] [-a AMP 0..3] [-t TONALITÉ] [-s] [-S SOURCE] tone\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;
 }
