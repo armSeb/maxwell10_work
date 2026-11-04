@@ -179,6 +179,16 @@ Avec `-s` : `DEM_CHANNEL_START` (canal 0xF0, slots 0x0003, PCM linéaire NB) →
 toujours refusé : dans `cmbs_host`, les tonalités visent le canal d'un **appel DECT** (objet d'appel), pas un
 canal AFE local. Le canal AFE démarré devrait en revanche transporter le flux TDM de l'i.MX vers le DAC0.
 
+Liaison analogique micro → ampli (`-S 19/20/21`) : toutes les requêtes OK, **aucun son** au premier essai
+(préampli, polarisation micro et gains non réglés à ce moment-là ; ajoutés ensuite). Pistes restantes :
+
+- gains : sortie `CMBS_AFE_OUT_SING_GAIN_0DB` (32) sur `AMP_OUTx`, entrée +20 dB (16) sur le préampli ;
+- les valeurs logcat `input_diffin1 = 16`, `input_sig0 = 12` correspondent à des **gains** (`E_CMBS_AFE_AMP_GAIN` :
+  20 dB, 14 dB) ; `amp_out0/1 = 1`, `amp_out2/3 = 2` pourraient être des sources relatives (DAC1, DAC0 inversé),
+  soit un haut-parleur en pont sur deux sorties ;
+- un ampli externe commandé par un GPIO : `GPIO4_IO06` (KEY_COL0) est muxé en GPIO par le vendeur sans
+  pilote associé — muxé aussi sous mainline (pkgrel 9) pour essayer `gpioset -c gpiochip3 6=1`.
+
 Premier essai sans TDM : `dvf99 -e nvram.bin tone` — canal AFE, `AMP_OUT0..3 ← DAC0`, tonalité 5 s.
 Le haut-parleur qui sonne identifie la bonne sortie (`-a N` pour n'en tester qu'une).
 

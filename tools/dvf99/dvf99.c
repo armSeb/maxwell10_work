@@ -551,6 +551,16 @@ static int request(int fd, struct decoder *d, unsigned ev, const uint8_t *p, uns
 	return rc;
 }
 
+static void set_gain(int fd, struct decoder *d, int ep, int steps)
+{
+	uint8_t b[16], v[3];
+	v[0] = ep; v[1] = steps & 0xff; v[2] = (steps >> 8) & 0xff;	/* s16 petit-boutiste */
+	unsigned n = ie_add(b, 0, IE_AFE_ENDPOINT_GAIN, v, 3);
+	char what[48];
+	snprintf(what, sizeof what, "AFE_ENDPOINT_GAIN %d = %d", ep, steps);
+	request(fd, d, EV_AFE_ENDPOINT_GAIN, b, n, what);
+}
+
 static int mode_tone(int fd, struct decoder *d, int amp, int tone, int start_channel, int src)
 {
 	if (do_init(fd, d)) return 1;
@@ -574,9 +584,26 @@ static int mode_tone(int fd, struct decoder *d, int amp, int tone, int start_cha
 		request(fd, d, EV_AFE_ENDPOINT_CONNECT, b, n, "AFE_ENDPOINT_CONNECT");
 		n = ie_add(b, 0, IE_AFE_ENDPOINT, v, 1);
 		request(fd, d, EV_AFE_ENDPOINT_ENABLE, b, n, "AFE_ENDPOINT_ENABLE");
+		/* gain de sortie : CMBS_AFE_OUT_SING_GAIN_0DB (32), le maximum */
+		set_gain(fd, d, AFE_AMP_OUT0 + a, 32);
 	}
 
-	if (src != AFE_AMPOUT_IN_DAC0) {
+	/* entrée analogique : il faut aussi activer son préampli et la
+	 * polarisation micro, et lui donner du gain */
+	int inamp = src == 19 ? 27 : src == 20 ? 29 : src == 21 ? 30 : -1;	/* AMP_SINGIN0 / DIFFIN0 / DIFFIN1 */
+	if (inamp >= 0) {
+		int mic = src == 21 ? 35 : 34;					/* MIC1 / MIC0 */
+		out("6b) préampli %d et polarisation micro %d, gain d'entrée +20 dB\n", inamp, mic);
+		v[0] = inamp;
+		n = ie_add(b, 0, IE_AFE_ENDPOINT, v, 1);
+		request(fd, d, EV_AFE_ENDPOINT_ENABLE, b, n, "AFE_ENDPOINT_ENABLE (préampli)");
+		v[0] = mic;
+		n = ie_add(b, 0, IE_AFE_ENDPOINT, v, 1);
+		request(fd, d, EV_AFE_ENDPOINT_ENABLE, b, n, "AFE_ENDPOINT_ENABLE (micro)");
+		set_gain(fd, d, inamp, 16);					/* CMBS_AFE_IN_GAIN_20DB */
+	}
+
+	if (src < 15 || src > 18) {	/* pas un DAC */
 		/* liaison analogique directe (entrée → ampli) : pas de canal média ni de
 		 * tonalité, on maintient 10 s pour écouter */
 		out("7) liaison analogique maintenue 10 s : parler dans le micro / écouter\n");
