@@ -307,6 +307,7 @@ struct decoder {
 	uint8_t hello[8];	/* paramètres du dernier HELLO_RPLY */
 	unsigned hello_len;
 	int prompt;		/* invite « DVF99 # » du U-Boot du module vue */
+	unsigned target_ups;	/* TARGET_UP reçus */
 	double t0;
 	int fd;			/* -1 pour un fichier de capture */
 	int eep_fd;		/* EEPROM émulée (-e), -1 sinon */
@@ -472,6 +473,7 @@ static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned 
 		if (n) memcpy(d->wparams, p, n);
 		d->want_seen = 1;
 	}
+	if (ev == EV_TARGET_UP) d->target_ups++;
 	if (ev == CMD_HELLO_RPLY) {
 		d->hello_len = n < sizeof d->hello ? n : sizeof d->hello;
 		memcpy(d->hello, p, d->hello_len);
@@ -602,6 +604,13 @@ static int do_init(int fd, struct decoder *d)
 		out("   pas d'invite U-Boot : pile cordless supposée déjà démarrée\n");
 	}
 
+	/* Au démarrage à froid, la pile envoie un second TARGET_UP après avoir
+	 * relu l'EEPROM : elle a alors redémarré et oublié HELLO/SYS_START (la radio
+	 * ne s'allume pas, le combiné ne revient pas). On refait la poignée de main
+	 * tant qu'un TARGET_UP arrive pendant l'init (3 passes au plus). */
+	for (int pass = 0; pass < 3; pass++) {
+	unsigned tu0 = d->target_ups;
+	if (pass) out("   la pile a redémarré (TARGET_UP) : nouvelle poignée de main\n");
 	if (tdm_type < 0) {
 		out("2) Hello (sans configuration TDM)\n");
 		send_msg(fd, d, CMD_HELLO, NULL, 0);
@@ -635,6 +644,8 @@ static int do_init(int fd, struct decoder *d)
 		quiet = d->frames == f ? quiet + 1 : 0;
 	}
 	out("   initialisation %s\n", quiet >= 3 ? "terminée" : "toujours en cours après 90 s");
+	if (d->target_ups == tu0) return 0;
+	}
 	return 0;
 }
 

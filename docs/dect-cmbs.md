@@ -460,3 +460,7 @@ ne peut prendre cette forme. D'où la disposition d'Android, telle quelle :
 
 Validé : haut-parleur (woofer + tweeter classe D, réglages par défaut), lecture vers le combiné et
 enregistrement de son micro sous PulseAudio.
+- **Second TARGET_UP au démarrage à froid** : après `run bootm`, la pile relit l'EEPROM puis redémarre
+  (second `TARGET_UP`) et oublie HELLO/SYS_START déjà reçus : la radio ne s'allume pas et le combiné ne
+  revient pas (d'où le succès de « `dvf99 init` puis le service » : la seconde poignée de main). `do_init`
+  refait HELLO + SYS_START tant qu'un TARGET_UP arrive pendant l'init.
