@@ -12,6 +12,7 @@ ExecStart=/usr/libexec/dvf99-service
 StateDirectory=dvf99
 RuntimeDirectory=dvf99
 RuntimeDirectoryPreserve=yes
+RuntimeDirectoryMode=1777
 Restart=on-failure
 RestartSec=5
 

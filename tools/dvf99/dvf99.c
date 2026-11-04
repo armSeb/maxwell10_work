@@ -1226,10 +1226,26 @@ static void *aud_play(void *arg)
 	return NULL;
 }
 
+/* (ré)ouvre le tube du micro créé par PulseAudio ; suit sa recréation */
+static int aud_mic_fd(int fd)
+{
+	struct stat a, b;
+	if (fd >= 0) {
+		if (stat(AUD_DIR "/mic", &a) == 0 && fstat(fd, &b) == 0 &&
+		    a.st_ino == b.st_ino && a.st_dev == b.st_dev)
+			return fd;
+		close(fd);
+	}
+	fd = open(AUD_DIR "/mic", O_RDWR | O_NONBLOCK);
+	if (fd >= 0) out("audio : tube du micro ouvert\n");
+	return fd;
+}
+
 static void *aud_capture(void *arg)
 {
 	(void)arg;
-	int mic = aud_fifo("mic");
+	int mic = -1;
+	double check = 0;
 	int16_t m[2 * AUD_FR], buf[AUD_CH * AUD_FR];
 	int fd = -1;
 	unsigned long xruns = 0;
@@ -1240,6 +1256,7 @@ static void *aud_capture(void *arg)
 			out("audio : capture ouverte\n");
 		}
 		if (aud_xfer(fd, 1, buf, &xruns) < 0) { close(fd); fd = -1; sleep(1); continue; }
+		if (now() > check) { mic = aud_mic_fd(mic); check = now() + 2.0; }
 		for (int i = 0; i < AUD_FR; i++) {
 			m[2 * i] = buf[AUD_CH * i];
 			m[2 * i + 1] = call_nb ? buf[AUD_CH * i] : buf[AUD_CH * i + 1];
@@ -1256,7 +1273,14 @@ static void audio_start(void)
 	mkdir(AUD_DIR, 0755);
 	/* les trois tubes existent avant que PulseAudio ne cherche à les ouvrir
 	 * (il ne peut pas les créer lui-même dans /run/dvf99) */
-	close(aud_fifo("speaker")); close(aud_fifo("handset")); close(aud_fifo("mic"));
+	close(aud_fifo("speaker")); close(aud_fifo("handset"));
+	/* module-pipe-source, lui, refuse un tube existant (mkfifo sans EEXIST) :
+	 * c'est PulseAudio qui crée /run/dvf99/mic, d'où le répertoire 1777, et
+	 * dvf99 l'ouvre quand il apparaît (aud_mic_fd). Un ancien tube créé par
+	 * root est retiré. */
+	chmod(AUD_DIR, 01777);
+	struct stat st;
+	if (stat(AUD_DIR "/mic", &st) == 0 && st.st_uid == 0) unlink(AUD_DIR "/mic");
 	pthread_t t;
 	pthread_create(&t, NULL, aud_play, NULL);
 	pthread_detach(t);
