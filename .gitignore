@@ -16,3 +16,4 @@ zImage*
 *.cpio*
 __pycache__/
 tools/fiemap2uboot/fiemap2uboot
+tools/mdio-scan/mdio-scan

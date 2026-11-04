@@ -36,7 +36,7 @@ docs/      notes de rétro-ingénierie, boot, postmarketOS
 dts/       DT vendeur extrait (nettoyé), DT mainline de dump, DT mainline complet
 dump/      init minimal + script PC pour dumper eMMC/NOR via mass storage USB
 pmos/      paquets pmaports (noyau + device), script de synchronisation
-tools/     goshim (lancer un zImage par `go`), fiemap2uboot, mkbootimg v0, dump RAM, scan MDIO (devmem), DWARF → header C
+tools/     goshim (lancer un zImage par `go`), fiemap2uboot, mkbootimg v0, dump RAM, scan MDIO (/dev/mem), DWARF → header C
 ```
 
 ## Ce dépôt ne contient pas
