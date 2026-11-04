@@ -77,6 +77,10 @@ pmbootstrap checksum "linux-$device" "device-$device"
 step "Configuration : device=$device, ui=$ui"
 pmbootstrap config device "$device"
 pmbootstrap config ui "$ui"
+# Les UI GNOME/Plasma (phosh…) passent sur le canal systemd-edge : des chroots
+# créés pour un autre canal font échouer l'installation. On les supprime
+# (seulement les chroots : paquets construits et caches conservés).
+pmbootstrap -y zap
 
 # --- 5. installation dans une image --------------------------------------
 step "Installation dans une image (compilation du noyau au premier passage : long)"
