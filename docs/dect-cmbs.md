@@ -100,10 +100,27 @@ python3 tools/dwarf2h.py cmbs_host cmbs_types.h
 4. audio : `fsl-ssi` + `audmux` + `simple-audio-card` en mainline, TDM esclave/maître à déterminer ;
 5. intégration : baresip (SIP), Home Assistant (Assist, événements décroché/touches).
 
+## U-Boot de la DVF99 (relevé sous mainline)
+
+`dvf99 console` puis `printenv` (rien de propre à l'appareil) :
+
+- `U-Boot dvf99 master 2012.04.01-00101-gb33b6ff (Aug 18 2014) maxwell-qspi`, invite `DVF99 # `,
+  `bootdelay=2` mais l'autoboot ne fait que régler la console (`bootcmd` = `setenv stdin/stdout/stderr dvf_uart1`) :
+  le module **attend l'hôte** ;
+- flash du module : NOR `w25q16dv`, `mtdparts=256k(u-boot),256k(u-boot-env),-(css)` ;
+- `bootm=run chk_parts; cp.b css 0x42000000 && css load 0x42000000 0x8e484` : copie de la pile CSS
+  (0x8e484 octets) en RAM puis démarrage ;
+- `upgrade`, `u-boot-upgrade`, `dfu_manifest_*` **effacent la flash du module** : à ne jamais lancer.
+
+`dvf99 boot` → `CSS firmware successfully loaded` puis, environ 2,5 s après `run bootm`, une première trame
+CMBS : paquet 0, événement 125 `CMBS_EV_DSR_TARGET_UP`, sans paramètre. En-tête confirmé en **petit-boutiste**,
+`u16_TotalLength` = 8 + `u16_ParamLength`. La pile attend ensuite l'hôte.
+
 ## Sous Linux mainline : premiers pas
 
-État : la DVF99 est **hors reset** (gpio-hog sur GPIO4_IO22, pour l'horloge du switch) mais reste dans
-**son U-Boot** : personne n'envoie `run bootm`. Pas de pile cordless, donc pas de DECT ni d'audio.
+État : la DVF99 est **hors reset** (gpio-hog sur GPIO4_IO22, pour l'horloge du switch) et reste dans
+**son U-Boot** jusqu'à `dvf99 boot`, qui démarre bien la pile cordless (TARGET_UP reçu). Reste à écrire
+l'hôte CMBS (Hello, SYS_START, paramètres, AFE) : pas encore de DECT ni d'audio.
 
 L'UART3 est activé dans le DT (`/dev/ttymxc2`, pads EIM_D24 TX / EIM_D25 RX, comme le vendeur).
 [tools/dvf99](../tools/dvf99/) (binaire ARM statique) :
