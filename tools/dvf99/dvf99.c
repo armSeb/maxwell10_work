@@ -5,6 +5,7 @@
  *   dvf99 [-d TTY] [-l JOURNAL] console   console du U-Boot de la DVF99 (ligne à ligne)
  *   dvf99 [-d TTY] [-l JOURNAL] boot      démarre la pile cordless (« run bootm »)
  *   dvf99 [-d TTY] [-l JOURNAL] sniff     décode les trames CMBS reçues
+ *   dvf99 [-d TTY] [-l JOURNAL] init      boot si besoin, puis Hello, SYS_START, version
  *   dvf99 -f CAPTURE sniff                décode un fichier brut (capture UART)
  *
  * Sous Android, CMBSServer pulse le reset de la DVF99, envoie « run bootm » à son
@@ -78,10 +79,35 @@ static int open_tty(const char *path)
 
 /* ---------- décodage CMBS ------------------------------------------------ */
 
+/*
+ * Identifiants : événements CMBS (u16_EventID) et commandes de lien, codées
+ * 0xFF00 | n (relevé par désassemblage de cmbs_int_cmd_Send). Seuls ceux qu'on
+ * utilise ou qu'on a observés sont listés.
+ */
+#define CMD_HELLO		0xFF01
+#define CMD_HELLO_RPLY		0xFF02
+#define CMD_FLOW_NOK		0xFF03
+#define CMD_FLOW_RESTART	0xFF04
+#define CMD_RESET		0xFF05
+#define EV_FW_VERSION_GET	23
+#define EV_FW_VERSION_GET_RES	24
+#define EV_SYS_START		25
+#define EV_SYS_START_RES	26
+#define EV_TARGET_UP		125
+
 static const char *event_name(unsigned id)
 {
-	/* relevés dans les journaux Android (docs/dect-cmbs.md) ; à compléter */
 	switch (id) {
+	case CMD_HELLO:        return "CMBS_CMD_HELLO";
+	case CMD_HELLO_RPLY:   return "CMBS_CMD_HELLO_RPLY";
+	case CMD_FLOW_NOK:     return "CMBS_CMD_FLOW_NOK";
+	case CMD_FLOW_RESTART: return "CMBS_CMD_FLOW_RESTART";
+	case CMD_RESET:        return "CMBS_CMD_RESET";
+	case 23:  return "CMBS_EV_DSR_FW_VERSION_GET";
+	case 24:  return "CMBS_EV_DSR_FW_VERSION_GET_RES";
+	case 25:  return "CMBS_EV_DSR_SYS_START";
+	case 29:  return "CMBS_EV_DSR_SYS_STATUS";
+	case 30:  return "CMBS_EV_DSR_SYS_LOG";
 	case 16:  return "CMBS_EV_DSR_PARAM_SET_RES";
 	case 26:  return "CMBS_EV_DSR_SYS_START_RES";
 	case 125: return "CMBS_EV_DSR_TARGET_UP";
@@ -118,6 +144,8 @@ struct decoder {
 	char text[256];
 	size_t tlen;
 	unsigned frames;
+	unsigned last_ev;
+	int prompt;		/* invite « DVF99 # » du U-Boot du module vue */
 	double t0;
 };
 
@@ -125,6 +153,7 @@ static void flush_text(struct decoder *d)
 {
 	if (!d->tlen) return;
 	d->text[d->tlen] = 0;
+	if (strstr(d->text, "DVF99 #")) d->prompt = 1;
 	out("[%8.3f] texte : %s\n", now() - d->t0, d->text);
 	d->tlen = 0;
 }
@@ -157,6 +186,7 @@ static void feed(struct decoder *d, uint8_t c)
 			    "longueur totale %u, paramètres %u\n",
 			    now() - d->t0, nr, ev, ev, event_name(ev), total, plen);
 			d->frames++;
+			d->last_ev = ev;
 			if (plen > MAX_PARAMS) {
 				out("      longueur de paramètres incohérente, resynchronisation\n");
 				d->state = 0; return;
@@ -193,6 +223,32 @@ static int read_for(int fd, struct decoder *d, double seconds)
 		if (d->frames > frames0) return 1;
 	}
 	flush_text(d);
+	return 0;
+}
+
+/* envoie une trame CMBS : synchro, en-tête petit-boutiste (n° de paquet 0,
+ * comme l'hôte DSPG), paramètres */
+static int send_msg(int fd, struct decoder *d, unsigned ev, const uint8_t *p, unsigned n)
+{
+	uint8_t b[4 + HDR_LEN + MAX_PARAMS] = { 0xda, 0xda, 0xda, 0xda };
+	unsigned total = HDR_LEN + n;
+	b[4] = total & 0xff; b[5] = total >> 8;
+	b[6] = 0; b[7] = 0;
+	b[8] = ev & 0xff; b[9] = ev >> 8;
+	b[10] = n & 0xff; b[11] = n >> 8;
+	if (n) memcpy(b + 12, p, n);
+	out("[%8.3f] envoi CMBS : événement %u (0x%04x) %s, %u octet(s) de paramètres\n",
+	    now() - d->t0, ev, ev, event_name(ev), n);
+	return write(fd, b, 4 + total) == (ssize_t)(4 + total) ? 0 : -1;
+}
+
+/* attend l'événement « ev » ; renvoie 1 s'il arrive avant « seconds » */
+static int wait_event(int fd, struct decoder *d, unsigned ev, double seconds)
+{
+	double end = now() + seconds;
+	while (now() < end)
+		if (read_for(fd, d, end - now()) && d->last_ev == ev)
+			return 1;
 	return 0;
 }
 
@@ -248,6 +304,41 @@ static int mode_boot(int fd, struct decoder *d)
 	return 2;
 }
 
+static int mode_init(int fd, struct decoder *d)
+{
+	out("1) état de la DVF99\n");
+	if (write(fd, "\r", 1) != 1) { perror("write"); return 1; }
+	read_for(fd, d, 2.0);
+	if (d->prompt) {
+		out("   U-Boot du module : envoi de « run bootm »\n");
+		dprintf(fd, "run bootm\r");
+		if (!wait_event(fd, d, EV_TARGET_UP, 20.0)) {
+			out("=> pas de TARGET_UP en 20 s\n");
+			return 2;
+		}
+	} else {
+		out("   pas d'invite U-Boot : pile cordless supposée déjà démarrée\n");
+	}
+
+	out("2) Hello (sans configuration TDM)\n");
+	send_msg(fd, d, CMD_HELLO, NULL, 0);
+	if (!wait_event(fd, d, CMD_HELLO_RPLY, 10.0)) {
+		out("=> pas de HELLO_RPLY en 10 s\n");
+		return 3;
+	}
+	out("3) SYS_START\n");
+	send_msg(fd, d, EV_SYS_START, NULL, 0);
+	if (!wait_event(fd, d, EV_SYS_START_RES, 10.0))
+		out("=> pas de SYS_START_RES en 10 s\n");
+	out("4) version du firmware\n");
+	send_msg(fd, d, EV_FW_VERSION_GET, NULL, 0);
+	if (!wait_event(fd, d, EV_FW_VERSION_GET_RES, 5.0))
+		out("=> pas de FW_VERSION_GET_RES en 5 s\n");
+	out("5) écoute 10 s des événements spontanés\n");
+	read_for(fd, d, 10.0);
+	return 0;
+}
+
 static int mode_sniff(int fd, struct decoder *d)
 {
 	out("Décodage (Ctrl-C pour arrêter)\n");
@@ -292,8 +383,9 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "console")) return mode_console(fd, &d);
 	if (!strcmp(mode, "boot")) return mode_boot(fd, &d);
 	if (!strcmp(mode, "sniff")) return mode_sniff(fd, &d);
+	if (!strcmp(mode, "init")) return mode_init(fd, &d);
 usage:
-	fprintf(stderr, "usage : dvf99 [-d TTY] [-l JOURNAL] [-U] console|boot|sniff\n"
+	fprintf(stderr, "usage : dvf99 [-d TTY] [-l JOURNAL] [-U] console|boot|sniff|init\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;
 }

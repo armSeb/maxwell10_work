@@ -116,6 +116,16 @@ python3 tools/dwarf2h.py cmbs_host cmbs_types.h
 CMBS : paquet 0, événement 125 `CMBS_EV_DSR_TARGET_UP`, sans paramètre. En-tête confirmé en **petit-boutiste**,
 `u16_TotalLength` = 8 + `u16_ParamLength`. La pile attend ensuite l'hôte.
 
+## Couche de lien (relevée par désassemblage de `cmbs_host`)
+
+- les **commandes de lien** passent par le même en-tête que les événements, avec `u16_EventID = 0xFF00 | n` :
+  `HELLO` = 1, `HELLO_RPLY` = 2, `FLOW_NOK` = 3, `FLOW_RESTART` = 4, `RESET` = 5 ;
+- l'hôte envoie toujours `u16_PacketNr = 0`, pas de somme de contrôle ;
+- paramètres du Hello : vide, ou configuration TDM sur 6 octets — type (maître/esclave…), vitesse (PCM/IOM
+  512…2048 kHz), synchro (courte/longue), masque de slots (u16), contrôle de flux ;
+- `HELLO_RPLY` : deux u16 (version, build) puis un octet ;
+- `cmbs_api_Init` = Hello puis attente de la réponse (10 s) ; `cmbs_dsr_sys_Start` = événement 25 sans paramètre.
+
 ## Sous Linux mainline : premiers pas
 
 État : la DVF99 est **hors reset** (gpio-hog sur GPIO4_IO22, pour l'horloge du switch) et reste dans
@@ -129,6 +139,7 @@ L'UART3 est activé dans le DT (`/dev/ttymxc2`, pads EIM_D24 TX / EIM_D25 RX, co
 |---|---|
 | `dvf99 -l dvf99.log console` | console du U-Boot du module, ligne à ligne ; refuse `saveenv`, `upgrade`, `erase`, `sf`, `cp.b`… (sauf `-U`) |
 | `dvf99 -l dvf99.log boot` | `\r` puis `run bootm` ; attend 20 s une trame CMBS (synchro `DA DA DA DA`) |
+| `dvf99 -l dvf99.log init` | `run bootm` si besoin, puis **Hello** (commande de lien `0xFF01`, sans configuration TDM), **SYS_START** (25) et **FW_VERSION_GET** (23) ; affiche les réponses |
 | `dvf99 -l dvf99.log sniff` | décode en continu : texte, puis trames CMBS (n° de paquet, événement, IE en hexa) |
 | `dvf99 -f capture.bin sniff` | décode un fichier brut (capture UART) |
 
