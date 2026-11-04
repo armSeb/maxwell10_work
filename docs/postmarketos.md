@@ -70,7 +70,7 @@ sur la carte. Résultat :
 | Partition | Label | FS | Taille | Contenu |
 |---|---|---|---|---|
 | p1 | `pmOS_boot` | FAT32 | 256 Mo | `go.bin`, `initramfs`, `vmlinuz`, `dtbs/` |
-| p2 | `pmOS_root` | ext4 | reste de la carte (agrandie au 1er démarrage) | rootfs |
+| p2 | `pmOS_root` | ext4 | reste de la carte (agrandie par `install-sdcard.sh` après écriture) | rootfs |
 
 Interface (`UI=…` pour le script, défaut `phosh`) :
 
@@ -111,7 +111,7 @@ Accès : console série (`getty` sur `ttymxc1`), ou réseau USB par le mini-USB 
 
 ## État des périphériques (DT `dts/imx6q-gigaset-maxwell10.dts`)
 
-Premier boot réussi le 2026-11-04 (pmOS, UI buffyboard).
+Premier boot réussi le 2026-11-04 (pmOS, UI buffyboard), puis Phosh (systemd) sur carte 16 Go.
 
 Tout ce qui suit est **écrit d'après le DT vendeur, pas encore testé** sur le noyau mainline,
 sauf mention contraire.
@@ -132,12 +132,12 @@ sauf mention contraire.
 | NOR SPI | 🧪 | partitions en lecture seule |
 | Ventilateur | ✅ | tourne à fond (gpio-hog) en attendant la régulation thermique |
 | Watchdog | 🧪 | servi par le noyau |
-| GPU (etnaviv), VPU | ⏳ | modules activés, non décrits au-delà de imx6q.dtsi |
+| GPU (etnaviv), cpufreq | ✅ | accélération Phosh OK (GC2000), fréquence CPU variable |
 | Capteur de lumière ISL29023 | ⏳ | bus à identifier |
 | Bluetooth AR3002 | ⏳ | |
 | Caméra OV9740 | ⏳ | |
 | HDMI | ⏳ | |
-| DECT / audio DVF99 | ⏳ | reset GPIO4_IO22 (actif bas) tenu **relâché** par un gpio-hog : la DVF99 fournit l'horloge du switch. Ne jamais le tenir actif |
+| DECT / audio DVF99 | ⏳ | **pas de son** : tout l'audio (haut-parleurs, micros, combiné) passe par la DVF99, qu'il faut démarrer (`run bootm` sur sa console UART3) puis configurer en CMBS, et relier à SSI1 en TDM. Reset GPIO4_IO22 tenu relâché par un gpio-hog. Voir [dect-cmbs.md](dect-cmbs.md) |
 
 ## Si ça ne démarre pas
 

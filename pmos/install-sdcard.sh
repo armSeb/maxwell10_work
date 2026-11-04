@@ -24,7 +24,7 @@
 #   5. pmbootstrap install → image disque ;
 #   6. image : GPT → MBR, p1 0x0C active, p2 0x83 ;
 #   7. image : vérifie que p1 contient go.bin et initramfs ;
-#   8. écrit l'image sur la carte et revérifie la table ;
+#   8. écrit l'image sur la carte, revérifie la table, agrandit p2 + ext4 à toute la carte ;
 #   9. affiche l'environnement U-Boot à saisir.
 set -eu
 
@@ -38,8 +38,8 @@ step() { printf '\n==> %s\n' "$*"; }
 
 [ -n "$dev" ] || die "usage : $0 /dev/sdX   (variable UI=… facultative, défaut phosh)"
 command -v pmbootstrap >/dev/null || die "pmbootstrap introuvable"
-for t in lsblk blkid sfdisk findmnt sgdisk dd; do
-	command -v "$t" >/dev/null || die "$t introuvable (util-linux, gdisk, coreutils)"
+for t in lsblk blkid sfdisk findmnt partx sgdisk dd e2fsck resize2fs; do
+	command -v "$t" >/dev/null || die "$t introuvable (util-linux, gdisk, coreutils, e2fsprogs)"
 done
 
 # --- 1. la carte -----------------------------------------------------------
@@ -153,8 +153,24 @@ sudo dd if="$img" of="$dev" bs=4M conv=fsync status=progress
 sync
 if command -v partprobe >/dev/null; then sudo partprobe "$dev" 2>/dev/null || true; fi
 [ "$(sudo blkid -p -o value -s PTTYPE "$dev")" = dos ] || die "la carte ne lit pas un MBR après écriture"
+
+# Racine agrandie ici, sur le PC : le redimensionnement automatique de
+# l'initramfs pmOS ne se déclenche pas sur cette carte (constaté après la
+# conversion GPT → MBR).
+step "Agrandissement de la racine (p2) à toute la carte"
+case "$dev" in
+	*[0-9]) p2="${dev}p2" ;;	# /dev/mmcblk0 → /dev/mmcblk0p2
+	*) p2="${dev}2" ;;
+esac
+echo ', +' | sudo sfdisk -q --no-reread -N 2 "$dev"
+if command -v partprobe >/dev/null; then sudo partprobe "$dev" 2>/dev/null || true; fi
+sudo partx -u "$dev" 2>/dev/null || true
+sleep 2
+[ -b "$p2" ] || die "$p2 introuvable"
+rc=0; sudo e2fsck -f -p "$p2" || rc=$?
+[ "$rc" -le 1 ] || die "e2fsck sur $p2 a échoué (code $rc)"
+sudo resize2fs "$p2"
 sudo sfdisk -l "$dev" | sed -n '/^Device/,$p'
-echo "  La partition racine sera agrandie à toute la carte au premier démarrage."
 
 # --- 9. U-Boot --------------------------------------------------------------
 step "Carte prête"
