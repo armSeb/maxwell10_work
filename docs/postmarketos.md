@@ -62,8 +62,8 @@ saveenv
 
 ## Carte microSD (2 Go)
 
-U-Boot 2009.08 ne lit qu'une table **MBR** avec p1 d'un type FAT. pmbootstrap peut créer une
-table GPT ou typer p1 en partition système EFI : `install-sdcard.sh` convertit ensuite en MBR
+U-Boot 2009.08 ne lit qu'une table **MBR** avec p1 d'un type FAT. pmbootstrap (constaté avec la v3.12.1)
+crée une table **GPT** avec p1 typée partition système **EFI** : `install-sdcard.sh` convertit ensuite en MBR
 (positions et contenu inchangés) et type p1 en `0x0C` (FAT32 LBA). Résultat :
 
 | Partition | Label | FS | Taille | Contenu |
