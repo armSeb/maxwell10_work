@@ -36,7 +36,11 @@
  *                                         mêmes que le woofer ; Android : 0x00F0 ; 0 : aucun)
  *   dvf99 [-e NVRAM] param 55 56          lit des paramètres CMBS (55/56 = volume
  *                                         DAC1/DAC2) ; « param 55 =1234 » écrit 12 34
- *   dvf99 [-q] [-e NVRAM] [-g GAIN] service
+ *   dvf99 [-q] [-e NVRAM] [-g GAIN] [-P SLOTS] [-C SLOTS] [-N] service
+ *                                         -P : slots du haut-parleur (défaut 0x0F00) ;
+ *                                         -C : slots de l'appel du combiné (défaut 0xF000) ;
+ *                                         touche verte du combiné = décroché automatique
+ *                                         (canal d'appel sur ces slots), sauf avec -N
  *                                         pour systemd : init + chemin haut-parleur ouvert
  *                                         en permanence (carte ALSA « DVF99 », mono 16 kHz) ;
  *                                         -q : journal réduit aux événements utiles
@@ -71,7 +75,9 @@
 static FILE *journal;
 static int unsafe;
 static int quiet;		/* -q : pas de trames détaillées (service) */
-static unsigned tweeter_slots = 0x0F00;	/* -W : slots du tweeter (Android : 0x00F0) */
+static unsigned speaker_slots = 0x0F00;	/* -P : slots du haut-parleur (woofer) */
+static int tweeter_slots = -1;		/* -W : slots du tweeter (-1 : ceux du woofer ; Android : 0x00F0) */
+static unsigned call_slots = 0xF000;	/* -C : slots du canal d'appel du combiné */
 static int tdm_type = 0;	/* -T : 0 maître (Android), 1 esclave, -1 sans config */
 
 #define dbg(...) do { if (!quiet) out(__VA_ARGS__); } while (0)
@@ -303,6 +309,13 @@ struct decoder {
 	int eep_fd;		/* EEPROM émulée (-e), -1 sinon */
 	uint8_t *eep;
 	size_t eep_size;
+	/* appel du combiné (mode service) : actions notées par on_frame,
+	 * exécutées par call_step hors du décodeur */
+	struct {
+		int active, answer, release, start, stop;
+		uint32_t inst, chan;
+		int chan_known, started;
+	} call;
 };
 
 static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n);
@@ -444,6 +457,8 @@ static const uint8_t *ie_find(const uint8_t *p, unsigned n, unsigned type, unsig
  *             + IE RESPONSE (0 = OK, 1 = erreur)
  *   SET_RES = IE RESPONSE
  */
+static void call_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n);
+
 static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n)
 {
 	if (d->want && ev == d->want) {
@@ -455,6 +470,7 @@ static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned 
 		d->hello_len = n < sizeof d->hello ? n : sizeof d->hello;
 		memcpy(d->hello, p, d->hello_len);
 	}
+	if (d->fd >= 0) call_frame(d, ev, p, n);
 	if (d->fd < 0 || (ev != EV_PARAM_AREA_GET && ev != EV_PARAM_AREA_SET))
 		return;
 	unsigned l = 0;
@@ -670,6 +686,100 @@ static unsigned ie_media_channel(uint8_t *b, unsigned at, uint32_t id, uint32_t 
 	put32(v, id); put32(v + 4, param); v[8] = 0;	/* CMBS_MEDIA_TYPE_AUDIO_IOM */
 	return ie_add(b, at, IE_MEDIACHANNEL, v, sizeof v);
 }
+
+/* ---------- appel du combiné ------------------------------------------------
+ * Flux de la bibliothèque hôte d'Android (appcall/appmedia) : à CALL_ESTABLISH
+ * du combiné, l'hôte répond CALL_PROGRESS puis CALL_ANSWER ; quand la base
+ * annonce le canal média de l'appel (IE MEDIACHANNEL), l'hôte fait
+ * DEM_CHANNEL_START {canal, masque de slots} (PCM linéaire WB : 4 octets).
+ * À CALL_RELEASE : DEM_CHANNEL_STOP puis CALL_RELEASECOMPLETE. */
+#define EV_CALL_ESTABLISH	46
+#define EV_CALL_PROGRESS	47
+#define EV_CALL_ANSWER		48
+#define EV_CALL_RELEASE		49
+#define EV_CALL_RELEASECOMPLETE	50
+#define EV_CALL_MEDIA_UPDATE	54
+#define EV_DEM_CHANNEL_STOP	65
+#define IE_CALLINSTANCE		1
+#define IE_CALLPROGRESS		5
+#define IE_MEDIACHANNEL_	10
+static int auto_answer = 1;	/* -N : ne pas décrocher automatiquement */
+
+static void call_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n)
+{
+	if (ev < 45 || ev > 60) return;		/* événements d'appel (DEE/DCM) */
+	unsigned l;
+	const uint8_t *ci = ie_find(p, n, IE_CALLINSTANCE, &l);
+	uint32_t inst = ci && l >= 4 ? le32(ci) : 0;
+	const uint8_t *mc = ie_find(p, n, IE_MEDIACHANNEL_, &l);
+	if (mc && l >= 4 && d->call.active && (!ci || inst == d->call.inst)) {
+		d->call.chan = le32(mc); d->call.chan_known = 1;
+		out("   appel : canal média 0x%x annoncé\n", d->call.chan);
+		if (!d->call.started) d->call.start = 1;
+	}
+	if (ev == EV_CALL_ESTABLISH) {
+		if (d->call.active) { out("   appel : déjà un appel en cours, ignoré\n"); return; }
+		memset(&d->call, 0, sizeof d->call);
+		d->call.active = 1; d->call.inst = inst;
+		out("   appel : le combiné appelle (instance %u)%s\n", inst,
+		    auto_answer ? ", décroché automatique" : "");
+		d->call.answer = auto_answer;
+		if (mc && l >= 4) { d->call.chan = le32(mc); d->call.chan_known = 1; d->call.start = 1; }
+	} else if (ev == EV_CALL_RELEASE && d->call.active && inst == d->call.inst) {
+		out("   appel : le combiné raccroche\n");
+		d->call.release = 1;
+	} else if (ev == EV_CALL_RELEASECOMPLETE && d->call.active && inst == d->call.inst) {
+		out("   appel : terminé\n");
+		memset(&d->call, 0, sizeof d->call);
+	}
+}
+
+static void call_send(struct decoder *d, unsigned ev, const uint8_t *b, unsigned n)
+{
+	send_msg(d->fd, d, ev, b, n);
+}
+
+static void call_step(struct decoder *d)
+{
+	uint8_t b[64], v[16]; unsigned n;
+	if (d->call.answer) {
+		d->call.answer = 0;
+		/* CALL_PROGRESS {instance, média proposé, progression}, puis ANSWER */
+		uint8_t desc[4] = { 5, 2, 5, 6 };	/* PCM linéaire WB, liste {WB, NB} */
+		put32(v, d->call.inst);
+		n = ie_add(b, 0, IE_CALLINSTANCE, v, 4);
+		n = ie_add(b, n, IE_MEDIADESCRIPTOR, desc, sizeof desc);
+		v[0] = 2;					/* CMBS_CALL_PROGR_PROCEEDING */
+		n = ie_add(b, n, IE_CALLPROGRESS, v, 1);
+		out("   appel : CALL_PROGRESS (proceeding)\n");
+		call_send(d, EV_CALL_PROGRESS, b, n);
+		read_for(d->fd, d, 0.2);
+		put32(v, d->call.inst);
+		n = ie_add(b, 0, IE_CALLINSTANCE, v, 4);
+		out("   appel : CALL_ANSWER (décroché)\n");
+		call_send(d, EV_CALL_ANSWER, b, n);
+	}
+	if (d->call.start && d->call.chan_known) {
+		d->call.start = 0; d->call.started = 1;
+		out("   appel : DEM_CHANNEL_START canal 0x%x, slots 0x%04x\n", d->call.chan, call_slots);
+		n = ie_media_channel(b, 0, d->call.chan, call_slots);
+		call_send(d, EV_DEM_CHANNEL_START, b, n);
+	}
+	if (d->call.release) {
+		d->call.release = 0;
+		if (d->call.started) {
+			n = ie_media_channel(b, 0, d->call.chan, 0);
+			call_send(d, EV_DEM_CHANNEL_STOP, b, n);
+			d->call.started = 0;
+		}
+		put32(v, d->call.inst);
+		n = ie_add(b, 0, IE_CALLINSTANCE, v, 4);
+		out("   appel : CALL_RELEASECOMPLETE\n");
+		call_send(d, EV_CALL_RELEASECOMPLETE, b, n);
+		memset(&d->call, 0, sizeof d->call);
+	}
+}
+
 
 /* envoie une requête, attend « ev + 1 », affiche l'IE RESPONSE ; 0 = OK */
 static int request(int fd, struct decoder *d, unsigned ev, const uint8_t *p, unsigned n, const char *what)
@@ -889,13 +999,14 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, mic, "AFE_ENDPOINT_ENABLE (micro)");
 		set_gain(fd, d, inamp, 16);
 	}
-	if (dac) channel_start(fd, d, woofer, 0x0F00, 1);
+	if (dac) channel_start(fd, d, woofer, speaker_slots, 1);
 
-	if (dac && tweeter_slots) {
-		out("6) canal tweeter (slots 0x%04x)\n", tweeter_slots);
+	unsigned tw = tweeter_slots < 0 ? speaker_slots : (unsigned)tweeter_slots;
+	if (dac && tw) {
+		out("6) canal tweeter (slots 0x%04x)\n", tw);
 		/* Android alloue le « tweeter » sur la ressource classe D (1) */
 		if (!afe_alloc(fd, d, &tweeter, 1))
-			channel_start(fd, d, tweeter, tweeter_slots, 1);
+			channel_start(fd, d, tweeter, tw, 1);
 	}
 
 	out("7) ampli du haut-parleur (GPIO D10 de la DVF99)\n");
@@ -917,7 +1028,10 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 	}
 	if (keep) {
 		out("9) -k : chemin laissé ouvert (Ctrl-C pour quitter, la DVF99 garde l'état)\n");
-		for (;;) if (read_for(fd, d, 3600.0) < 0) return 1;
+		for (;;) {
+			if (read_for(fd, d, 0.5) < 0) return 1;
+			call_step(d);
+		}
 	}
 
 	out("9) libération\n");
@@ -1026,7 +1140,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:N")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -1044,6 +1158,9 @@ int main(int argc, char **argv)
 		case 'T': tdm_type = atoi(optarg); break;
 		case 'q': quiet = 1; break;
 		case 'W': tweeter_slots = strtoul(optarg, NULL, 0); break;
+		case 'P': speaker_slots = strtoul(optarg, NULL, 0); break;
+		case 'C': call_slots = strtoul(optarg, NULL, 0); break;
+		case 'N': auto_answer = 0; break;
 		default: goto usage;
 		}
 	}
