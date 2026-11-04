@@ -107,7 +107,9 @@ Puis la carte dans la tablette, et l'environnement U-Boot ci-dessus.
 Accès : console série (`getty` sur `ttymxc1`), ou réseau USB par le mini-USB caché
 (`ssh user@172.16.42.1`), ou l'écran.
 
-## État des périphériques (DT `dts/imx6q-gigaset-maxwell10.dts`)
+## État des périphériques
+
+Premier boot réussi le 2026-11-04 (pmOS, UI buffyboard). (DT `dts/imx6q-gigaset-maxwell10.dts`)
 
 Tout ce qui suit est **écrit d'après le DT vendeur, pas encore testé** sur le noyau mainline,
 sauf mention contraire.
@@ -116,17 +118,17 @@ sauf mention contraire.
 |---|---|---|
 | UART2 console | ✅ testé (image de dump) | |
 | eMMC (usdhc3) | ✅ testé (image de dump) | lecture seule par convention |
-| microSD (usdhc4) | 🧪 | CD = GPIO2_IO6 actif bas ; WP ignoré |
-| Écran LVDS 1280×800 | 🧪 | `panel-lvds`, timings du vendeur (83,5 MHz), mapping VESA (« spwg ») |
+| microSD (usdhc4) | ✅ | `mmcblk3` sous mainline ; boot et rootfs pmOS |
+| Écran LVDS 1280×800 | ✅ écran de démarrage affiché |
 | Rétroéclairage | 🧪 | PWM1, 50 µs |
-| Tactile FT5x06 | 🧪 | i2c3 @ 0x38, IRQ GPIO1_IO2, reset GPIO2_IO19 |
+| Tactile FT5x06 | 🧪 IRQ vue (le toucher allumait la LED caméra flottante, corrigé) |
 | Bouton power | 🧪 | GPIO4_IO10 |
 | Ethernet (FEC + 88E6320 DSA) | 🧪 | ports `lan` et `pc` ; délais RGMII mis côté switch (`rgmii-id` sur le port CPU), à confirmer |
-| USB OTG (gadget) | 🧪 | réseau USB pmOS |
+| USB OTG (gadget) | ✅ `usb0` en 172.16.42.1 |
 | USB hôte (hub USB2512) | 🧪 | |
 | Wi-Fi AR6003 (usdhc1) | 🧪 | `ath6kl_sdio` + `linux-firmware-ath6k` (sous-paquet nonfree-firmware) |
 | NOR SPI | 🧪 | partitions en lecture seule |
-| Ventilateur | 🧪 | forcé en marche (gpio-hog) en attendant une régulation thermique |
+| Ventilateur | ✅ tourne (à fond : gpio-hog) |
 | Watchdog | 🧪 | servi par le noyau |
 | GPU (etnaviv), VPU | ⏳ | modules activés, non décrits au-delà de imx6q.dtsi |
 | Capteur de lumière ISL29023 | ⏳ | bus à identifier |

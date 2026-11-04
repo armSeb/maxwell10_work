@@ -76,6 +76,20 @@
 		};
 	};
 
+	leds {
+		compatible = "gpio-leds";
+
+		/*
+		 * LED de la caméra (GPIO1_IO05). Laissé non configuré, le pad flotte et
+		 * la LED s'allumait au toucher (couplage avec l'IRQ tactile voisine).
+		 */
+		led-camera {
+			label = "camera";
+			gpios = <&gpio1 5 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+	};
+
 	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
@@ -319,6 +333,7 @@
 		fsl,pins = <
 			0x178 0x48c 0x000 0x5 0x0 0xb0b1	/* DISP0_DAT2 = GPIO4_IO23, ventilateur */
 			0x244 0x614 0x000 0x5 0x0 0xb0b0	/* GPIO_8 = GPIO1_IO08, reset Wi-Fi */
+			0x23c 0x60c 0x000 0x5 0x0 0x130b0	/* GPIO_5 = GPIO1_IO05, LED caméra, pull-down */
 		>;
 	};
 
