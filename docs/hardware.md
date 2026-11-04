@@ -58,7 +58,7 @@ Un reset de la DVF99 coupe brièvement le switch : il faut relancer les PHY (`la
 (workaround Gigaset « AFM-307 », présent aussi dans leur driver DSA). Le GPIO de reset de la DVF99
 ne doit donc jamais être tenu à l'état actif.
 Sous mainline, le DT le tient **relâché** par un gpio-hog (pad DISP0_DAT1 muxé en GPIO) ; sans cela le pad restait
-sur sa fonction d'affichage par défaut et le switch n'était pas détecté.
+sur sa fonction d'affichage par défaut ; c'est la piste retenue pour le switch non détecté au premier boot (à confirmer).
 
 ## Partitions eMMC (vendeur)
 
