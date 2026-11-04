@@ -14,7 +14,8 @@
 #   2. met à jour le clone pmaports (origin/main doit exister) ;
 #   3. copie les paquets du dépôt dans pmaports/device/testing (sync.sh) et calcule les sommes ;
 #   4. sélectionne l'appareil et l'UI dans la config pmbootstrap ;
-#   5. pmbootstrap install --sdcard (EFFACE la carte) ;
+#   5. pmbootstrap install --sdcard (EFFACE la carte), puis table convertie en
+#      MBR avec p1 typée 0x0C (seul format lu par U-Boot 2009.08) ;
 #   6. vérifie que p1 contient go.bin et initramfs ;
 #   7. affiche l'environnement U-Boot à saisir.
 set -eu
@@ -29,7 +30,9 @@ step() { printf '\n==> %s\n' "$*"; }
 
 [ -n "$dev" ] || die "usage : $0 /dev/sdX   (variable UI=… facultative, défaut buffyboard)"
 command -v pmbootstrap >/dev/null || die "pmbootstrap introuvable"
-command -v lsblk >/dev/null || die "lsblk introuvable"
+for t in lsblk blkid sfdisk; do
+	command -v "$t" >/dev/null || die "$t introuvable (util-linux)"
+done
 
 # --- 1. la carte -----------------------------------------------------------
 step "Carte $dev"
@@ -71,6 +74,27 @@ pmbootstrap config ui "$ui"
 # --- 5. installation --------------------------------------------------------
 step "Installation (compilation du noyau au premier passage : long)"
 pmbootstrap install --sdcard="$dev"
+
+# --- 5b. table de partitions lisible par U-Boot 2009.08 ----------------------
+# pmbootstrap peut créer une table GPT et/ou typer p1 en partition système EFI
+# (0xEF). U-Boot 2009.08 ne lit que le MBR « DOS » ; et udisks ignore les ESP,
+# d'où une p1 qui ne se monte pas toute seule sur le PC. On convertit en MBR
+# et on type p1 en FAT32 LBA (0x0C) : positions et contenu des partitions
+# inchangés, labels et UUID des systèmes de fichiers aussi.
+step "Table de partitions pour U-Boot (MBR, p1 en 0x0C)"
+sync
+pttype=$(sudo blkid -p -o value -s PTTYPE "$dev" || true)
+echo "  table actuelle : ${pttype:-inconnue}"
+if [ "$pttype" = gpt ]; then
+	command -v sgdisk >/dev/null || die "table GPT : installer sgdisk (paquet gdisk) pour la convertir en MBR"
+	sudo sgdisk --gpttombr=1:2 "$dev"
+fi
+pttype=$(sudo blkid -p -o value -s PTTYPE "$dev" || true)
+[ "$pttype" = dos ] || die "table « $pttype » après conversion, MBR attendu"
+sudo sfdisk --part-type "$dev" 1 c
+sudo sfdisk --part-type "$dev" 2 83
+sudo sfdisk --activate "$dev" 1
+sudo sfdisk -l "$dev"
 
 # --- 6. vérification de /boot ----------------------------------------------
 step "Vérification de la partition de boot"

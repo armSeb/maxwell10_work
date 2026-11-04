@@ -62,7 +62,9 @@ saveenv
 
 ## Carte microSD (2 Go)
 
-`pmbootstrap install --sdcard` crée une table **MBR** (lue par U-Boot 2009.08) :
+U-Boot 2009.08 ne lit qu'une table **MBR** avec p1 d'un type FAT. pmbootstrap peut créer une
+table GPT ou typer p1 en partition système EFI : `install-sdcard.sh` convertit ensuite en MBR
+(positions et contenu inchangés) et type p1 en `0x0C` (FAT32 LBA). Résultat :
 
 | Partition | Label | FS | Taille | Contenu |
 |---|---|---|---|---|
@@ -138,6 +140,7 @@ sauf mention contraire.
 | Symptôme sur UART2 | Piste |
 |---|---|
 | rien après `goshim: caches/MMU off` | DTB non trouvé derrière le zImage (`go.bin` mal assemblé), ou `CONFIG_ARM_APPENDED_DTB` absent |
+| `fatload`/`fatls` ne voient pas p1, et le PC ne monte pas p1 tout seul | table **GPT** ou p1 typée **ESP (0xEF)** par pmbootstrap : U-Boot 2009.08 ne lit que le MBR, udisks ignore les ESP. `sudo blkid -p -o value -s PTTYPE /dev/sdX` ; si `gpt` : `sudo sgdisk --gpttombr=1:2 /dev/sdX` ; puis `sudo sfdisk --part-type /dev/sdX 1 c`. Le contenu est conservé. `install-sdcard.sh` le fait d'office |
 | `fatload` échoue sur la carte pmOS mais marchait avant | p1 en FAT32 créée par pmbootstrap : le FAT32 d'U-Boot 2009.08 est fragile. Reformater p1 en FAT16 (`mkfs.vfat -F 16 -n pmOS_boot`) et recopier son contenu, puis `deviceinfo_boot_filesystem="fat16"` |
 | `goshim: initrd -> ATAG_INITRD2` absent | `go` lancé sans les deux arguments, ou `${filesize}` vide (voir piège hush) |
 | `Kernel panic … VFS: Unable to mount root fs` | initrd non vu : vérifier `linux,initrd-start` dans `/sys/firmware/devicetree/base/chosen` depuis l'image de dump ; `CONFIG_ARM_ATAG_DTB_COMPAT` |
