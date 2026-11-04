@@ -81,6 +81,9 @@ Interface (`UI=…` pour le script, défaut `phosh`) :
 | `cage` | kiosque : une seule appli (navigateur) en plein écran, le plus léger pour le dashboard Home Assistant | rien d'autre que cette appli |
 | `buffyboard` | console + clavier tactile, pour le débogage | clavier invisible sur cet appareil (non résolu) |
 
+**Cartes testées** : une 2 Go SDSC et une 16 Go SDHC fonctionnent ; une **Lexar 32 Go UHS-I** n'est pas
+initialisée par U-Boot 2009.08 (`mmcinfo` : capacité 0, bloquée à 400 kHz) — préférer une carte sans UHS.
+
 Affichage par KMS (imx-drm) et rendu GPU par etnaviv (Mesa) ; carte SDHC de 32 Go maximum
 (U-Boot 2009.08 ne gère probablement pas le SDXC).
 
