@@ -67,6 +67,14 @@ git -C "$aports" fetch origin || die "git fetch du clone pmaports a échoué ($(
 git -C "$aports" rev-parse --verify -q origin/main >/dev/null || \
 	die "origin/main absent dans $aports — branches distantes : $(git -C "$aports" branch -r | tr '\n' ' ')
      (pmbootstrap et pmaports désaccordés : mettre pmbootstrap à jour, ou recloner pmaports, voir docs/postmarketos.md)"
+# avancer la copie de travail (le fetch seul laisse les recettes en retard sur le
+# dépôt binaire : « about to install … (local pmaports: …) »)
+if [ "$(git -C "$aports" rev-parse --abbrev-ref HEAD)" = main ]; then
+	git -C "$aports" merge -q --ff-only origin/main || \
+		echo "ATTENTION : avance rapide impossible dans $aports (modifications locales ?), on continue"
+else
+	echo "ATTENTION : $aports n'est pas sur main, pas de mise à jour"
+fi
 
 # --- 3. paquets -------------------------------------------------------------
 step "Paquets $device"
