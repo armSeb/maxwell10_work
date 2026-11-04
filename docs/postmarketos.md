@@ -123,10 +123,10 @@ sauf mention contraire.
 | Rétroéclairage | 🧪 | PWM1, 50 µs |
 | Tactile FT5x06 | ✅ | `edt_ft5x06` sur i2c-2 @ 0x38, saisie buffyboard OK |
 | Bouton power | 🧪 | GPIO4_IO10 |
-| Ethernet (FEC + 88E6320 DSA) | ⚠️ | FEC OK (lien fixe 1 Gb/s) mais switch non détecté au premier boot, ni `lan` ni `pc` ; piste : reset DVF99 non maîtrisé (horloge du switch), corrigé par hog — à revérifier |
+| Ethernet (FEC + 88E6320 DSA) | ⚠️ | FEC OK (lien fixe 1 Gb/s) ; switch : nœud MDIO présent mais `bind` → ENODEV (ID non reconnu), même DVF99 hors reset. Diagnostic : [tools/mdio-scan.sh](../tools/mdio-scan.sh) |
 | USB OTG (gadget) | ✅ `usb0` en 172.16.42.1 |
 | USB hôte (hub USB2512) | 🧪 | |
-| Wi-Fi AR6003 (usdhc1) | ⚠️ | carte SDIO détectée ; firmware absent au premier boot → `linux-firmware-ath6k` désormais dépendance directe du paquet device. Idéalement, reprendre le `bdata.bin` (calibration) d'Android, non publié |
+| Wi-Fi AR6003 (usdhc1) | ⚠️ | carte SDIO détectée ; échec firmware au premier boot : Alpine livre les firmwares en `.zst`, il manquait `CONFIG_FW_LOADER_COMPRESS_ZSTD` (ajouté). Firmwares dans le sous-paquet `-nonfree-firmware` (ath6k, ar3k, imx). Idéalement, reprendre le `bdata.bin` (calibration) d'Android, non publié |
 | NOR SPI | 🧪 | partitions en lecture seule |
 | Ventilateur | ✅ | tourne à fond (gpio-hog) en attendant la régulation thermique |
 | Watchdog | 🧪 | servi par le noyau |

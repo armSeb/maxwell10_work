@@ -2,7 +2,7 @@
 pkgname=device-gigaset-maxwell10
 pkgdesc="Gigaset Maxwell 10"
 pkgver=1
-pkgrel=1
+pkgrel=2
 url="https://github.com/armSeb/maxwell10_work"
 license="MIT"
 arch="armv7"
@@ -10,12 +10,9 @@ options="!check !archcheck"
 depends="
 	postmarketos-base
 	linux-gigaset-maxwell10
-	linux-firmware-ath6k
 	"
-# Le firmware Wi-Fi est une dépendance directe (et non un sous-paquet
-# -nonfree-firmware) : pmbootstrap 3.x ne l'installait pas, l'installation doit
-# être reproductible sans question.
 makedepends="devicepkg-dev"
+subpackages="$pkgname-nonfree-firmware:nonfree_firmware"
 source="deviceinfo"
 
 build() {
@@ -24,6 +21,16 @@ build() {
 
 package() {
 	devicepkg_package $startdir $pkgname
+}
+
+nonfree_firmware() {
+	pkgdesc="Firmwares non libres : Wi-Fi AR6003, Bluetooth AR3002, SDMA i.MX6"
+	depends="
+		linux-firmware-ath6k
+		linux-firmware-ar3k
+		linux-firmware-imx
+		"
+	mkdir "$subpkgdir"
 }
 
 # Sommes générées par : pmbootstrap checksum device-gigaset-maxwell10
