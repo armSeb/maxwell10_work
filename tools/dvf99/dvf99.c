@@ -121,6 +121,12 @@ static const char *ie_name(unsigned t)
 	switch (t) {
 	case 1:  return "CALLINSTANCE";
 	case 10: return "MEDIACHANNEL";
+	case 2:  return "CALLERPARTY";
+	case 3:  return "CALLERNAME";
+	case 4:  return "CALLEDPARTY";
+	case 5:  return "CALLPROGRESS";
+	case 8:  return "CALLRELEASE_REASON";
+	case 9:  return "CALLSTATE";
 	case 12: return "MEDIADESCRIPTOR";
 	case 13: return "TONE";
 	case 22: return "RESPONSE";
@@ -165,6 +171,16 @@ static const char *event_name(unsigned id)
 	case 25:  return "CMBS_EV_DSR_SYS_START";
 	case 29:  return "CMBS_EV_DSR_SYS_STATUS";
 	case 30:  return "CMBS_EV_DSR_SYS_LOG";
+	case 45:  return "CMBS_EV_DCM_CALL_STATE";
+	case 46:  return "CMBS_EV_DEE_CALL_ESTABLISH";
+	case 47:  return "CMBS_EV_DEE_CALL_PROGRESS";
+	case 48:  return "CMBS_EV_DEE_CALL_ANSWER";
+	case 49:  return "CMBS_EV_DEE_CALL_RELEASE";
+	case 50:  return "CMBS_EV_DEE_CALL_RELEASECOMPLETE";
+	case 51:  return "CMBS_EV_DEE_CALL_INBANDINFO";
+	case 52:  return "CMBS_EV_DEE_CALL_MEDIA_OFFER";
+	case 53:  return "CMBS_EV_DEE_CALL_MEDIA_OFFER_RES";
+	case 54:  return "CMBS_EV_DEE_CALL_MEDIA_UPDATE";
 	case 61:  return "CMBS_EV_DEM_CHANNEL_START";
 	case 62:  return "CMBS_EV_DEM_CHANNEL_START_RES";
 	case 65:  return "CMBS_EV_DEM_CHANNEL_STOP";

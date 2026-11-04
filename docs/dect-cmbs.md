@@ -207,6 +207,19 @@ La liaison radio fonctionne donc, avec les appairages relus dans l'EEPROM émul�
 et lui signale son état. L'octet 7 de DATA porte l'état du crochet (0 décroché, 1 raccroché) ; le reste
 (`81 05 05 01 02`, `27`) reste à interpréter.
 
+Touche verte du combiné (prise de ligne) :
+
+```
+← CMBS_EV_DEE_CALL_ESTABLISH (46)
+   IE 1  CALLINSTANCE    : 08 00 00 00                 instance d'appel 8
+   IE 2  CALLERPARTY     : 0b 00 01 31                 appelant = combiné « 1 » (ASCII)
+   IE 12 MEDIADESCRIPTOR : 05 07 05 03 04 06 02 01 07  codec préféré PCM linéaire WB, 7 codecs proposés
+```
+
+L'hôte doit répondre (CALL_PROGRESS / ANSWER / MEDIA_OFFER puis DEM_CHANNEL_START sur le canal de l'appel) :
+c'est sur ce canal d'appel que les tonalités (`DEM_TONE_START`) ont un sens. Séquence exacte à relever
+(logcat Android ou capture UART).
+
 ## Sous Linux mainline : premiers pas
 
 État : la DVF99 est **hors reset** (gpio-hog sur GPIO4_IO22, pour l'horloge du switch) et reste dans
