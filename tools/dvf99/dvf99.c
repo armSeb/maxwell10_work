@@ -1018,6 +1018,16 @@ static volatile sig_atomic_t stop_req;
 #define AUD_CH		6
 static int tweeter_pct = 50;		/* -X : niveau du tweeter en % (écrêtage des aigus à 100) */
 static int audio_on;			/* -A */
+static int audio_nomic;			/* -M : pas de capture (micro du combiné) */
+
+/* journal des erreurs PCM, limité à une ligne toutes les 5 s */
+static void aud_err(struct pcm *p, const char *what, int r)
+{
+	static double last;
+	if (now() - last < 5.0) return;
+	last = now();
+	out("audio : %s : %d (%s), état %d\n", what, r, pcm_get_error(p), pcm_state(p));
+}
 
 static int aud_card(void)
 {
@@ -1103,6 +1113,7 @@ static void *aud_play(void *arg)
 		}
 		int r = pcm_writei(p, buf, AUD_FR);
 		if (r < 0) {
+			aud_err(p, "écriture", r);
 			if (pcm_prepare(p) < 0) { pcm_close(p); p = NULL; sleep(1); }
 		}
 	}
@@ -1124,6 +1135,7 @@ static void *aud_capture(void *arg)
 		}
 		int r = pcm_readi(p, buf, AUD_FR);
 		if (r < 0) {
+			aud_err(p, "lecture micro", r);
 			if (pcm_prepare(p) < 0) { pcm_close(p); p = NULL; sleep(1); }
 			continue;
 		}
@@ -1141,6 +1153,7 @@ static void audio_start(void)
 	pthread_t t;
 	pthread_create(&t, NULL, aud_play, NULL);
 	pthread_detach(t);
+	if (audio_nomic) return;
 	pthread_create(&t, NULL, aud_capture, NULL);
 	pthread_detach(t);
 }
@@ -1347,7 +1360,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:M")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -1372,6 +1385,7 @@ int main(int argc, char **argv)
 #ifdef DVF99_AUDIO
 		case 'A': audio_on = 1; break;
 		case 'X': tweeter_pct = atoi(optarg); break;
+		case 'M': audio_nomic = 1; break;
 #endif
 		default: goto usage;
 		}
