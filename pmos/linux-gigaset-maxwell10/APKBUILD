@@ -4,7 +4,7 @@
 # (goshim + zImage + DTB appendé), initramfs passé par ATAGs. Voir docs/postmarketos.md.
 pkgname=linux-gigaset-maxwell10
 pkgver=6.12
-pkgrel=11
+pkgrel=12
 pkgdesc="Gigaset Maxwell 10 mainline kernel"
 arch="armv7"
 _carch="arm"
@@ -40,6 +40,7 @@ source="
 	goshim.S
 	0001-net-dsa-mv88e6xxx-pulse-reset-before-detection.patch
 	0002-thermal-imx-add-an-active-trip-for-fans.patch
+	0003-ASoC-accept-S16_BE-on-fsl_ssi-and-spdif-dit.patch
 	"
 builddir="$srcdir/linux-$pkgver"
 

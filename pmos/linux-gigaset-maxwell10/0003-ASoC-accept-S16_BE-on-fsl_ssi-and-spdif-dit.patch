@@ -1,0 +1,42 @@
+From: Maxwell 10 port
+Subject: [PATCH] ASoC: accept S16_BE on fsl_ssi and spdif-dit for the DVF9919 TDM link
+
+The DVF9919 of the Gigaset Maxwell 10 wants 16-bit PCM with the low byte
+first on its byte-slotted TDM bus. On a little-endian i.MX6 the SSI sends
+the word as read, so declaring S16_BE yields exactly that byte order;
+userspace (plug, PipeWire) then converts from S16_LE. The dummy spdif-dit
+codec used by the simple-audio-card link must accept it too.
+---
+diff --git a/sound/soc/codecs/spdif_transmitter.c b/sound/soc/codecs/spdif_transmitter.c
+index db51a46e6..5a30cc7d4 100644
+--- a/sound/soc/codecs/spdif_transmitter.c
++++ b/sound/soc/codecs/spdif_transmitter.c
+@@ -24,6 +24,7 @@
+ #define STUB_RATES	(SNDRV_PCM_RATE_8000_768000 | \
+ 			 SNDRV_PCM_RATE_128000)
+ #define STUB_FORMATS	(SNDRV_PCM_FMTBIT_S16_LE | \
++			SNDRV_PCM_FMTBIT_S16_BE | \
+ 			SNDRV_PCM_FMTBIT_S20_3LE | \
+ 			SNDRV_PCM_FMTBIT_S24_LE  | \
+ 			SNDRV_PCM_FMTBIT_S32_LE)
+diff --git a/sound/soc/fsl/fsl_ssi.c b/sound/soc/fsl/fsl_ssi.c
+index 320108beb..6ca155f2e 100644
+--- a/sound/soc/fsl/fsl_ssi.c
++++ b/sound/soc/fsl/fsl_ssi.c
+@@ -77,9 +77,16 @@
+ 	 SNDRV_PCM_FMTBIT_S24_3BE | \
+ 	 SNDRV_PCM_FMTBIT_S24_BE)
+ #else
++/*
++ * S16_BE as well: the SSI shifts the 16-bit word as the DMA read it, so
++ * big-endian samples go out with their two bytes swapped. The DSPG DVF9919
++ * DECT/audio chip of the Gigaset Maxwell 10 expects exactly that on its
++ * byte-slotted TDM bus (low byte in the first slot).
++ */
+ #define FSLSSI_I2S_FORMATS \
+ 	(SNDRV_PCM_FMTBIT_S8 | \
+ 	 SNDRV_PCM_FMTBIT_S16_LE | \
++	 SNDRV_PCM_FMTBIT_S16_BE | \
+ 	 SNDRV_PCM_FMTBIT_S18_3LE | \
+ 	 SNDRV_PCM_FMTBIT_S20_3LE | \
+ 	 SNDRV_PCM_FMTBIT_S24_3LE | \
