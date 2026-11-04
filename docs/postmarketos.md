@@ -135,7 +135,7 @@ sauf mention contraire.
 | GPU (etnaviv), cpufreq | ✅ | accélération Phosh OK (GC2000), fréquence CPU variable |
 | Capteur de lumière ISL29023 | ⏳ | bus à identifier |
 | Bluetooth AR3002 | ⏳ | |
-| Caméra OV9740 | ⏳ | |
+| Caméra OV9740 | ⏳ | pas de pilote mainline (soc_camera retiré) : `pipeline start failed with -32` si une appli l'ouvre. Détails : [hardware.md](hardware.md#caméra-ov9740) |
 | HDMI | ⏳ | |
 | DECT / audio DVF99 | ⏳ | **pas de son** : tout l'audio (haut-parleurs, micros, combiné) passe par la DVF99, qu'il faut démarrer (`run bootm` sur sa console UART3) puis configurer en CMBS, et relier à SSI1 en TDM. Reset GPIO4_IO22 tenu relâché par un gpio-hog. Voir [dect-cmbs.md](dect-cmbs.md) |
 

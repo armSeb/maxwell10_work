@@ -76,3 +76,22 @@ Le mv88e6xxx mainline ne pulse le reset qu'après détection : patch dans `pmos/
 | p10 | `/fotatemp` |
 
 Les autres (boot, recovery, misc…) seront identifiées sur le dump.
+
+## Caméra OV9740
+
+D'après le DT vendeur (`ov9740_mipi@10`, pilote vendeur 3.14) :
+
+| | |
+|---|---|
+| Bus | i2c1 @ `0x10` |
+| Liaison | MIPI CSI-2, **1 voie**, canal virtuel 0 → IPU1 CSI0 |
+| Horloge | MCLK 24 MHz sur la sortie `CKO` (clk `0xc9` = `IMX6QDL_CLK_CKO`) |
+| PWDN | GPIO5_IO24, actif bas d'après le vendeur |
+| Reset | GPIO5_IO23, actif haut d'après le vendeur |
+| LED | GPIO1_IO5, actif bas (confirmé) |
+| Alimentations | DOVDD/DVDD 1,8 V fixe, AVDD (régulateur `0x24`) |
+
+**Pas de pilote mainline** : l'ancien `soc_camera/ov9740.c` a été retiré du noyau. Sous mainline, sans nœud
+caméra, la chaîne imx-media n'a pas de source : `imx-ipuv3-csi … pipeline start failed with -32` (EPIPE) quand
+une appli ouvre la caméra. Il faudra porter le pilote en sous-périphérique V4L2 (fwnode, CSI-2), décrire le
+capteur dans le DT, puis configurer les liens avec `media-ctl`.
