@@ -1,0 +1,6 @@
+#!/sbin/openrc-run
+description="Ventilateur du Gigaset Maxwell 10 piloté par la température"
+command=/usr/bin/maxwell-fan
+command_background=true
+pidfile=/run/maxwell-fan.pid
+supervisor=supervise-daemon

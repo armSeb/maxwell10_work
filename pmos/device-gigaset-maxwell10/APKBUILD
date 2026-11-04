@@ -2,7 +2,7 @@
 pkgname=device-gigaset-maxwell10
 pkgdesc="Gigaset Maxwell 10"
 pkgver=1
-pkgrel=2
+pkgrel=3
 url="https://github.com/armSeb/maxwell10_work"
 license="MIT"
 arch="armv7"
@@ -13,7 +13,14 @@ depends="
 	"
 makedepends="devicepkg-dev"
 subpackages="$pkgname-nonfree-firmware:nonfree_firmware"
-source="deviceinfo"
+install="$pkgname.post-install $pkgname.post-upgrade"
+source="
+	deviceinfo
+	maxwell-fan
+	maxwell-fan.service
+	maxwell-fan.initd
+	60-maxwell-ioscheduler.rules
+	"
 
 build() {
 	devicepkg_build $startdir $pkgname
@@ -21,6 +28,13 @@ build() {
 
 package() {
 	devicepkg_package $startdir $pkgname
+
+	install -Dm755 "$srcdir"/maxwell-fan "$pkgdir"/usr/bin/maxwell-fan
+	install -Dm644 "$srcdir"/maxwell-fan.service \
+		"$pkgdir"/usr/lib/systemd/system/maxwell-fan.service
+	install -Dm755 "$srcdir"/maxwell-fan.initd "$pkgdir"/etc/init.d/maxwell-fan
+	install -Dm644 "$srcdir"/60-maxwell-ioscheduler.rules \
+		"$pkgdir"/usr/lib/udev/rules.d/60-maxwell-ioscheduler.rules
 }
 
 nonfree_firmware() {

@@ -130,14 +130,38 @@ sauf mention contraire.
 | USB hôte (hub USB2512) | 🧪 | |
 | Wi-Fi AR6003 (usdhc1) | ✅ | `wlan0` ; fw 3.2.0.144 api 3 avec `linux-firmware-ath6k` (fichiers `.zst`, d'où `CONFIG_FW_LOADER_COMPRESS_ZSTD`). Board file générique `bdata.SD31` : reprendre le `bdata.bin` d'Android pour la calibration (non publié) |
 | NOR SPI | 🧪 | partitions en lecture seule |
-| Ventilateur | ✅ | tourne à fond (gpio-hog) en attendant la régulation thermique |
+| Ventilateur | ✅ | `gpio-fan` piloté par le service `maxwell-fan` (paquet device) : marche ≥ 65 °C, arrêt ≤ 55 °C, en marche si le service s'arrête. Seuils dans `/etc/default/maxwell-fan` |
 | Watchdog | 🧪 | servi par le noyau |
 | GPU (etnaviv), cpufreq | ✅ | accélération Phosh OK (GC2000), fréquence CPU variable |
 | Capteur de lumière ISL29023 | ⏳ | bus à identifier |
 | Bluetooth AR3002 | ⏳ | |
 | Caméra OV9740 | ⏳ | pas de pilote mainline (soc_camera retiré) : `pipeline start failed with -32` si une appli l'ouvre. Détails : [hardware.md](hardware.md#caméra-ov9740) |
 | HDMI | ⏳ | |
-| DECT / audio DVF99 | ⏳ | **pas de son** : tout l'audio (haut-parleurs, micros, combiné) passe par la DVF99, qu'il faut démarrer (`run bootm` sur sa console UART3) puis configurer en CMBS, et relier à SSI1 en TDM. Reset GPIO4_IO22 tenu relâché par un gpio-hog. Voir [dect-cmbs.md](dect-cmbs.md) |
+| DECT / audio DVF99 | 🔍 | **pas de son** pour l'instant : la DVF99 reste dans son U-Boot. UART3 activé, outil [tools/dvf99](../tools/dvf99/) pour la démarrer et décoder le CMBS. Feuille de route : [dect-cmbs.md](dect-cmbs.md#sous-linux-mainline--premiers-pas) |
+
+## Optimisations
+
+Intégrées aux paquets :
+
+| Où | Quoi | Pourquoi |
+|---|---|---|
+| noyau | gouverneur **schedutil** par défaut, **HZ=250**, **préemption complète** | réactivité de l'interface |
+| noyau | zram en **zstd** (et lz4) | swap compressé en RAM utilisable (2 Go de RAM) |
+| paquet device | **BFQ** sur `mmcblk*` (règle udev) | l'interface reste fluide quand la carte SD travaille |
+| paquet device | ventilateur régulé (`maxwell-fan`) | silence au repos |
+| deviceinfo | `deviceinfo_gpu_accelerated="true"` | etnaviv fonctionne : pmOS propose les UI accélérées |
+
+À faire soi-même, selon l'usage :
+
+```sh
+gsettings set org.gnome.desktop.interface enable-animations false   # gros gain perçu sur GC2000
+gsettings set org.gnome.desktop.session idle-delay 0                # pas de mise en veille (dashboard)
+gsettings set org.gnome.desktop.input-sources sources "[('xkb','fr')]"
+```
+
+Carte SD : la vitesse dépend surtout des accès aléatoires de la carte. Le contrôleur est limité au mode
+3,3 V « high speed » (~20 Mo/s) ; prendre une carte de bonne marque **sans UHS-I** (une Lexar UHS-I n'est
+pas lue par U-Boot 2009.08).
 
 ## Si ça ne démarre pas
 

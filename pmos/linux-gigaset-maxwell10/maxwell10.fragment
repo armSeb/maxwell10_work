@@ -146,3 +146,14 @@ CONFIG_GPIO_SYSFS=n
 
 # --- Inutile ici, et exige python3 au build (en-têtes générés en 6.12) ---
 # CONFIG_DRM_MSM is not set
+
+# --- Réactivité de l'interface ---
+CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+CONFIG_HZ_250=y
+CONFIG_PREEMPT=y
+CONFIG_IOSCHED_BFQ=y
+
+# --- Bluetooth AR3002 (UART5) et rfkill, pour la suite ---
+CONFIG_BT_HCIUART_ATH3K=y
+CONFIG_RFKILL_GPIO=y

@@ -104,6 +104,19 @@
 		};
 	};
 
+	/*
+	 * Ventilateur (gpio-fan vendeur), tout ou rien. Piloté en espace utilisateur
+	 * selon la température (service maxwell-fan du paquet device) : la zone
+	 * thermique d'imx_thermal n'est pas décrite en DT, on ne peut pas y lier
+	 * le ventilateur comme dispositif de refroidissement.
+	 */
+	fan: fan {
+		compatible = "gpio-fan";
+		gpios = <&gpio4 23 GPIO_ACTIVE_HIGH>;
+		gpio-fan,speed-map = <0 0>, <3000 1>;
+		#cooling-cells = <2>;
+	};
+
 	/* Wi-Fi AR6003 : reset GPIO1_IO08 actif bas (gpio-reset vendeur, 10 ms) */
 	wifi_pwrseq: wifi-pwrseq {
 		compatible = "mmc-pwrseq-simple";
@@ -113,17 +126,6 @@
 };
 
 &gpio4 {
-	/*
-	 * Ventilateur (gpio-fan vendeur) forcé en marche tant qu'il n'est pas
-	 * piloté par la thermique. Plus bruyant, mais sûr.
-	 */
-	fan-hog {
-		gpio-hog;
-		gpios = <23 GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "fan";
-	};
-
 	/*
 	 * GPIO4_IO22 = reset de la DVF99 (DECT + audio), actif bas. La DVF99 fournit
 	 * l'horloge du switch Ethernet (cartes rév. ≤ 11) : on la tient HORS reset
@@ -142,6 +144,16 @@
 &uart2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart2>;
+	status = "okay";
+};
+
+/*
+ * DVF9919 (DECT + audio) : console de son U-Boot puis protocole CMBS,
+ * 115200 8N1 sans contrôle de flux. Piloté en espace utilisateur (tools/dvf99).
+ */
+&uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart3>;
 	status = "okay";
 };
 
@@ -345,6 +357,13 @@
 			0x23c 0x60c 0x000 0x5 0x0 0x1b0b0	/* GPIO_5 = GPIO1_IO05, LED caméra (active basse), pull-up */
 			0x174 0x488 0x000 0x5 0x0 0x0b0b0	/* DISP0_DAT1 = GPIO4_IO22, reset DVF99 (cf. vendeur) */
 			0x17c 0x490 0x000 0x5 0x0 0x1b0b0	/* DISP0_DAT3 = GPIO4_IO24, détection PoE (entrée) */
+		>;
+	};
+
+	pinctrl_uart3: uart3grp {
+		fsl,pins = <
+			0x0b4 0x3c8 0x000 0x2 0x0 0x1b0b1	/* EIM_D24 UART3_TX */
+			0x0b8 0x3cc 0x930 0x2 0x1 0x1b0b1	/* EIM_D25 UART3_RX */
 		>;
 	};
 

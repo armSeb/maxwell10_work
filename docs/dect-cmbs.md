@@ -99,3 +99,34 @@ python3 tools/dwarf2h.py cmbs_host cmbs_types.h
    AFE, appairage, événements d'appel ;
 4. audio : `fsl-ssi` + `audmux` + `simple-audio-card` en mainline, TDM esclave/maître à déterminer ;
 5. intégration : baresip (SIP), Home Assistant (Assist, événements décroché/touches).
+
+## Sous Linux mainline : premiers pas
+
+État : la DVF99 est **hors reset** (gpio-hog sur GPIO4_IO22, pour l'horloge du switch) mais reste dans
+**son U-Boot** : personne n'envoie `run bootm`. Pas de pile cordless, donc pas de DECT ni d'audio.
+
+L'UART3 est activé dans le DT (`/dev/ttymxc2`, pads EIM_D24 TX / EIM_D25 RX, comme le vendeur).
+[tools/dvf99](../tools/dvf99/) (binaire ARM statique) :
+
+| Commande | Effet |
+|---|---|
+| `dvf99 -l dvf99.log console` | console du U-Boot du module, ligne à ligne ; refuse `saveenv`, `upgrade`, `erase`, `sf`, `cp.b`… (sauf `-U`) |
+| `dvf99 -l dvf99.log boot` | `\r` puis `run bootm` ; attend 20 s une trame CMBS (synchro `DA DA DA DA`) |
+| `dvf99 -l dvf99.log sniff` | décode en continu : texte, puis trames CMBS (n° de paquet, événement, IE en hexa) |
+| `dvf99 -f capture.bin sniff` | décode un fichier brut (capture UART) |
+
+Ordre conseillé :
+
+1. sauvegarder `/vendor_gigaset/dect_configs/` (NOR) et `/data/cmbs/nvram.bin` (Android) — **propres à l'appareil, non publiés** ;
+2. `dvf99 console` : noter l'invite, `printenv` (lecture seule), la version ;
+3. `dvf99 boot` : voir si la pile démarre et émet spontanément des trames, ou attend l'hôte ;
+4. **capturer l'échange réel sous Android** pour connaître la séquence hôte → DVF99 (hello, paramètres
+   `CMBS_PARAM_*`, configuration AFE/TDM) : deux adaptateurs USB-série 3,3 V en écoute seule sur TX et RX de
+   l'UART3 (masse commune, aucune liaison vers l'émission), `cat /dev/ttyUSB0 > hote.bin` et
+   `cat /dev/ttyUSB1 > dvf99.bin` pendant un démarrage d'Android, puis `dvf99 -f … sniff` ;
+5. rejouer cette séquence depuis Linux (démon `dvf99d` à écrire), puis décrire le lien audio TDM
+   (SSI1 ↔ AUDMUX int 2 ↔ ext 4) dans le DT.
+
+⚠️ Pendant `bootm`, l'horloge fournie au switch pourrait sauter (cf. workaround vendeur « AFM-307 » qui
+relance les PHY) : faire ces essais par le Wi-Fi ou l'USB, et redémarrer si l'Ethernet tombe.
+

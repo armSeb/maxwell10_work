@@ -1,0 +1,3 @@
+# BFQ sur la microSD et l'eMMC : meilleure réactivité de l'interface quand le
+# stockage (lent) est sollicité en tâche de fond.
+ACTION=="add|change", KERNEL=="mmcblk[0-9]*", ENV{DEVTYPE}=="disk", ATTR{queue/scheduler}="bfq"

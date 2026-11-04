@@ -15,6 +15,7 @@ deviceinfo_keyboard="false"
 deviceinfo_external_storage="true"
 deviceinfo_screen_width="1280"
 deviceinfo_screen_height="800"
+deviceinfo_gpu_accelerated="true"
 deviceinfo_getty="ttymxc1;115200"
 
 # Le noyau ne lit pas cette ligne : avec `go`, la ligne de commande vient de
