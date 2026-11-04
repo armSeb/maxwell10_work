@@ -134,7 +134,7 @@ sauf mention contraire.
 | Watchdog | 🧪 | servi par le noyau |
 | GPU (etnaviv), cpufreq | ✅ | accélération Phosh OK (GC2000), fréquence CPU variable |
 | Capteur de lumière ISL29023 | ⏳ | bus à identifier |
-| Bluetooth AR3002 | ⏳ | |
+| Bluetooth AR3002 | 🧪 | UART5 (`/dev/ttymxc4`, RTS/CTS, mode DTE) + rfkill-gpio sur GPIO4_IO07 (pkgrel 10) ; firmware `linux-firmware-ar3k` ; pas de serdev : `hciattach -s 115200 /dev/ttymxc4 ath3k 3000000 flow` (paquet `bluez-deprecated`) |
 | Caméra OV9740 | ⏳ | pas de pilote mainline (soc_camera retiré) : `pipeline start failed with -32` si une appli l'ouvre. Détails : [hardware.md](hardware.md#caméra-ov9740) |
 | HDMI | ⏳ | |
 | DECT / audio DVF99 | 🔍 | **pas de son** pour l'instant : la DVF99 reste dans son U-Boot. UART3 activé, outil [tools/dvf99](../tools/dvf99/) pour la démarrer et décoder le CMBS. Feuille de route : [dect-cmbs.md](dect-cmbs.md#sous-linux-mainline--premiers-pas) |

@@ -91,6 +91,20 @@
 		};
 	};
 
+	/*
+	 * Bluetooth Atheros AR3002 sur UART5 (protocole ATH3K, pas de liaison
+	 * serdev en mainline : hciattach). Alimentation GPIO4_IO07, active basse
+	 * d'après le DT vendeur (bt-power-gpios) — inverser si le module reste muet.
+	 */
+	bt_rfkill: rfkill-bt {
+		compatible = "rfkill-gpio";
+		label = "bluetooth";
+		radio-type = "bluetooth";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_bt>;
+		shutdown-gpios = <&gpio4 7 GPIO_ACTIVE_LOW>;
+	};
+
 	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
@@ -154,6 +168,15 @@
 &uart3 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart3>;
+	status = "okay";
+};
+
+/* AR3002 : 115200 au démarrage, contrôle de flux matériel, câblage DTE (vendeur) */
+&uart5 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart5>;
+	uart-has-rtscts;
+	fsl,dte-mode;
 	status = "okay";
 };
 
@@ -359,6 +382,22 @@
 			0x17c 0x490 0x000 0x5 0x0 0x1b0b0	/* DISP0_DAT3 = GPIO4_IO24, détection PoE (entrée) */
 			0x1f8 0x5c8 0x000 0x5 0x0 0x0b0b0	/* KEY_COL0 = GPIO4_IO06, GPIO vendeur sans pilote
 							   (piste : activation de l'ampli HP) — libre pour essais */
+		>;
+	};
+
+	pinctrl_uart5: uart5grp {
+		/* valeurs du DT vendeur (uart5dtegrp-1) */
+		fsl,pins = <
+			0x204 0x5d4 0x000 0x4 0x0 0x1b0b1	/* KEY_ROW1 */
+			0x200 0x5d0 0x940 0x4 0x0 0x1b0b1	/* KEY_COL1 */
+			0x21c 0x5ec 0x93c 0x4 0x1 0x1b0b1	/* KEY_ROW4 */
+			0x218 0x5e8 0x000 0x4 0x0 0x1b0b1	/* KEY_COL4 */
+		>;
+	};
+
+	pinctrl_bt: btgrp {
+		fsl,pins = <
+			0x1fc 0x5cc 0x000 0x5 0x0 0xb0b0	/* KEY_ROW0 = GPIO4_IO07, alimentation BT */
 		>;
 	};
 
