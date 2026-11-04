@@ -1254,6 +1254,9 @@ static void audio_start(void)
 {
 	if (!audio_on) return;
 	mkdir(AUD_DIR, 0755);
+	/* les trois tubes existent avant que PulseAudio ne cherche à les ouvrir
+	 * (il ne peut pas les créer lui-même dans /run/dvf99) */
+	close(aud_fifo("speaker")); close(aud_fifo("handset")); close(aud_fifo("mic"));
 	pthread_t t;
 	pthread_create(&t, NULL, aud_play, NULL);
 	pthread_detach(t);
