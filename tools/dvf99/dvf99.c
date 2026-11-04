@@ -560,8 +560,30 @@ static int mode_boot(int fd, struct decoder *d)
 	return 2;
 }
 
+static int reset_first;	/* -R : SYS_RESET de la pile avant l'init */
+
+/* Redémarre la pile cordless comme app_SrvSystemReset d'Android :
+ * CMBS_EV_DSR_SYS_RESET (31) sans paramètre, puis attente de TARGET_UP (ou de
+ * l'invite du U-Boot du module, que do_init traite ensuite). Remet la base dans
+ * un état propre quand des essais successifs l'ont laissée sans réponse. */
+static void reset_target(int fd, struct decoder *d)
+{
+	out("0) SYS_RESET de la pile cordless\n");
+	d->prompt = 0;
+	send_msg(fd, d, 31, NULL, 0);
+	double end = now() + 25.0;
+	d->want = EV_TARGET_UP; d->want_seen = 0;
+	while (now() < end && !d->want_seen && !d->prompt)
+		read_for(fd, d, 0.5);
+	d->want = 0;
+	out(d->want_seen ? "   pile redémarrée (TARGET_UP)\n" :
+	    d->prompt ? "   retour au U-Boot du module\n" : "   pas de signe de redémarrage en 25 s\n");
+	if (d->want_seen) read_for(fd, d, 1.0);
+}
+
 static int do_init(int fd, struct decoder *d)
 {
+	if (reset_first) reset_target(fd, d);
 	out("1) état de la DVF99\n");
 	if (write(fd, "\r", 1) != 1) { perror("write"); return 1; }
 	read_for(fd, d, 2.0);
@@ -1175,7 +1197,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:N")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NR")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -1196,6 +1218,7 @@ int main(int argc, char **argv)
 		case 'P': speaker_slots = strtoul(optarg, NULL, 0); break;
 		case 'C': call_slots = strtoul(optarg, NULL, 0); break;
 		case 'N': auto_answer = 0; break;
+		case 'R': reset_first = 1; break;
 		default: goto usage;
 		}
 	}
@@ -1224,6 +1247,7 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "boot")) return mode_boot(fd, &d);
 	if (!strcmp(mode, "sniff")) return mode_sniff(fd, &d);
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
+	if (!strcmp(mode, "reset")) { reset_first = 1; return mode_init(fd, &d); }
 	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel, src);
 	if (!strcmp(mode, "param")) return mode_param(fd, &d, argc - optind - 1, argv + optind + 1);
 	if (!strcmp(mode, "speaker")) return mode_speaker(fd, &d, src, gain, tone, hold, keep);
@@ -1238,6 +1262,7 @@ usage:
 			"        dvf99 [-q] [-e NVRAM] [-g GAIN] [-P SLOTS] [-W SLOTS] [-C SLOTS] [-N] service\n"
 			"          (service : touche verte du combiné = décroché automatique, -N pour non)\n"
 			"        dvf99 [-e NVRAM] param N [=HEX] [N [=HEX]…]\n"
+			"        dvf99 [-e NVRAM] reset   (SYS_RESET de la pile puis init ; -R : idem avant tout mode)\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;
 }
