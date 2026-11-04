@@ -166,6 +166,8 @@ struct decoder {
 	unsigned last_ev;
 	unsigned want;		/* événement attendu par wait_event */
 	int want_seen;
+	uint8_t hello[8];	/* paramètres du dernier HELLO_RPLY */
+	unsigned hello_len;
 	int prompt;		/* invite « DVF99 # » du U-Boot du module vue */
 	double t0;
 	int fd;			/* -1 pour un fichier de capture */
@@ -309,6 +311,10 @@ static const uint8_t *ie_find(const uint8_t *p, unsigned n, unsigned type, unsig
  */
 static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n)
 {
+	if (ev == CMD_HELLO_RPLY) {
+		d->hello_len = n < sizeof d->hello ? n : sizeof d->hello;
+		memcpy(d->hello, p, d->hello_len);
+	}
 	if (d->fd < 0 || (ev != EV_PARAM_AREA_GET && ev != EV_PARAM_AREA_SET))
 		return;
 	unsigned l = 0;
@@ -418,14 +424,14 @@ static int mode_init(int fd, struct decoder *d)
 		out("=> pas de HELLO_RPLY en 10 s\n");
 		return 3;
 	}
-	if (d->need >= 4)
-		out("   pile cordless version %x.%02x, build %x\n", d->params[1], d->params[0], le16(d->params + 2));
+	if (d->hello_len >= 4)
+		out("   pile cordless version %x.%02x, build %x\n", d->hello[1], d->hello[0], le16(d->hello + 2));
 	out("3) SYS_START\n");
 	send_msg(fd, d, EV_SYS_START, NULL, 0);
 	if (!wait_event(fd, d, EV_SYS_START_RES, 10.0))
 		out("=> pas de SYS_START_RES en 10 s\n");
-	out("4) écoute 30 s (réponses automatiques EEPROM si -e)\n");
-	read_for(fd, d, 30.0);
+	out("4) écoute 60 s (réponses automatiques EEPROM si -e)\n");
+	read_for(fd, d, 60.0);
 	return 0;
 }
 

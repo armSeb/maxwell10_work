@@ -136,6 +136,10 @@ CMBS : paquet 0, événement 125 `CMBS_EV_DSR_TARGET_UP`, sans paramètre. En-t�
 ← PARAM_AREA_GET (76) : IE PARAMETER_AREA (26) zone 0 (EEPROM), offset 0, 0xF0 octets
 ```
 
+Avec l'EEPROM émulée (`-e`, copie de `nvram.bin`, 8192 octets) : la DVF99 lit ses 0xF0 premiers octets,
+reçoit SYS_START, **réécrit** aussitôt ces 0xF0 octets (PARAM_AREA_SET), puis poursuit sa lecture par blocs
+de 0xF0 (offset 0xF0, …). Les octets lus et écrits sont propres à l'appareil (identité radio) : ne pas les publier.
+
 Format d'un IE : `u16 type, u16 longueur, valeur`. Après SYS_START, la DVF99 **lit son EEPROM chez l'hôte** :
 c'est le rôle de `/data/cmbs/nvram.bin` (appairages, identité). L'hôte répond par PARAM_AREA_GET_RES (77) :
 IE PARAMETER_AREA (zone, offset u32, longueur u16, données) + IE RESPONSE ; les écritures arrivent en
