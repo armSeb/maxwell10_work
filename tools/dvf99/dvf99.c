@@ -34,6 +34,8 @@
  *                                         -S 22 : micro (DIFFIN0) → HP, sans TDM
  *                                         -W SLOTS : slots du tweeter (défaut 0x0F00, les
  *                                         mêmes que le woofer ; Android : 0x00F0 ; 0 : aucun)
+ *   dvf99 [-e NVRAM] param 55 56          lit des paramètres CMBS (55/56 = volume
+ *                                         DAC1/DAC2) ; « param 55 =1234 » écrit 12 34
  *   dvf99 [-q] [-e NVRAM] [-g GAIN] service
  *                                         pour systemd : init + chemin haut-parleur ouvert
  *                                         en permanence (carte ALSA « DVF99 », mono 16 kHz) ;
@@ -142,6 +144,7 @@ static const char *ie_name(unsigned t)
 {
 	switch (t) {
 	case 1:  return "CALLINSTANCE";
+	case 16: return "PARAMETER";
 	case 10: return "MEDIACHANNEL";
 	case 2:  return "CALLERPARTY";
 	case 3:  return "CALLERNAME";
@@ -247,6 +250,9 @@ static const char *event_name(unsigned id)
 	case 77:  return "CMBS_EV_DSR_PARAM_AREA_GET_RES";
 	case 78:  return "CMBS_EV_DSR_PARAM_AREA_SET";
 	case 79:  return "CMBS_EV_DSR_PARAM_AREA_SET_RES";
+	case 13:  return "CMBS_EV_DSR_PARAM_GET";
+	case 14:  return "CMBS_EV_DSR_PARAM_GET_RES";
+	case 15:  return "CMBS_EV_DSR_PARAM_SET";
 	case 16:  return "CMBS_EV_DSR_PARAM_SET_RES";
 	case 26:  return "CMBS_EV_DSR_SYS_START_RES";
 	case 125: return "CMBS_EV_DSR_TARGET_UP";
@@ -926,6 +932,72 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 	return 0;
 }
 
+/* Paramètres CMBS (EV 13 GET / 15 SET, IE 16 PARAMETER : u8 paramètre, u8 type
+ * 0 = EEPROM, u16 longueur, données). Firmware de la Maxwell 10 : 55 = DAC1_VOL,
+ * 56 = DAC2_VOL (2 octets, relevé dans appsrv_AFESetSidetoneValue). */
+#define EV_PARAM_GET	13
+#define EV_PARAM_SET	15
+#define IE_PARAMETER	16
+
+static int param_get(int fd, struct decoder *d, unsigned id)
+{
+	uint8_t b[16], v[4] = { id, 0, 0, 0 };
+	unsigned n = ie_add(b, 0, IE_PARAMETER, v, 4);
+	char w[48];
+	snprintf(w, sizeof w, "PARAM_GET %u", id);
+	int rc = request(fd, d, EV_PARAM_GET, b, n, w);
+	unsigned l;
+	const uint8_t *p = ie_find(d->wparams, d->wlen, IE_PARAMETER, &l);
+	if (p && l >= 4) {
+		unsigned dl = le16(p + 2);
+		out("   paramètre %u :", p[0]);
+		for (unsigned i = 0; i < dl && 4 + i < l; i++) out(" %02x", p[4 + i]);
+		out("\n");
+	}
+	return rc;
+}
+
+static int param_set(int fd, struct decoder *d, unsigned id, const uint8_t *data, unsigned len)
+{
+	uint8_t b[96], v[80] = { id, 0 };
+	if (len > 64) return -1;
+	put16(v + 2, len); memcpy(v + 4, data, len);
+	unsigned n = ie_add(b, 0, IE_PARAMETER, v, 4 + len);
+	char w[48];
+	snprintf(w, sizeof w, "PARAM_SET %u", id);
+	return request(fd, d, EV_PARAM_SET, b, n, w);
+}
+
+static unsigned parse_hex(const char *h, uint8_t *out_, unsigned max)
+{
+	unsigned n = 0;
+	while (h[0] && h[1] && n < max) {
+		unsigned x;
+		if (sscanf(h, "%2x", &x) != 1) break;
+		out_[n++] = x; h += 2;
+	}
+	return n;
+}
+
+/* dvf99 param N [HEX] … : lit (et écrit) des paramètres CMBS */
+static int mode_param(int fd, struct decoder *d, int argc, char **argv)
+{
+	if (do_init(fd, d)) return 1;
+	for (int i = 0; i < argc; i++) {
+		unsigned id = strtoul(argv[i], NULL, 0);
+		param_get(fd, d, id);
+		if (i + 1 < argc && argv[i + 1][0] == '=') {
+			uint8_t v[64];
+			unsigned n = parse_hex(argv[i + 1] + 1, v, sizeof v);
+			param_set(fd, d, id, v, n);
+			param_get(fd, d, id);
+			i++;
+		}
+	}
+	read_for(fd, d, 2.0);	/* laisse passer une éventuelle écriture EEPROM */
+	return 0;
+}
+
 static int mode_sniff(int fd, struct decoder *d)
 {
 	out("Décodage (Ctrl-C pour arrêter)\n");
@@ -972,7 +1044,8 @@ int main(int argc, char **argv)
 		default: goto usage;
 		}
 	}
-	if (optind != argc - 1) goto usage;
+	if (optind >= argc) goto usage;
+	if (optind != argc - 1 && strcmp(argv[optind], "param")) goto usage;
 	struct decoder d = { .t0 = now(), .fd = -1, .eep_fd = -1 };
 	if (eep) {
 		d.eep_fd = open(eep, O_RDWR);
@@ -997,6 +1070,7 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "sniff")) return mode_sniff(fd, &d);
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
 	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel, src);
+	if (!strcmp(mode, "param")) return mode_param(fd, &d, argc - optind - 1, argv + optind + 1);
 	if (!strcmp(mode, "speaker")) return mode_speaker(fd, &d, src, gain, tone, hold, keep);
 	/* service : chemin haut-parleur ouvert en permanence, pour la carte ALSA
 	 * « DVF99 » (mono 16 kHz) ; s'arrête en erreur si l'UART disparaît */
@@ -1006,6 +1080,7 @@ usage:
 			"        dvf99 [-e NVRAM] [-a AMP 0..3] [-t TONALITÉ] [-s] [-S SOURCE] tone\n"
 			"        dvf99 [-e NVRAM] [-S SOURCE] [-g GAIN] [-t TONALITÉ|-1] [-w S] [-k] speaker\n"
 			"        dvf99 [-q] [-e NVRAM] [-g GAIN] [-W SLOTS] service\n"
+			"        dvf99 [-e NVRAM] param N [=HEX] [N [=HEX]…]\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;
 }
