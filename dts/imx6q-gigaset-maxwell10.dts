@@ -80,12 +80,13 @@
 		compatible = "gpio-leds";
 
 		/*
-		 * LED de la caméra (GPIO1_IO05). Laissé non configuré, le pad flotte et
-		 * la LED s'allumait au toucher (couplage avec l'IRQ tactile voisine).
+		 * LED de la caméra (GPIO1_IO05), active à l'état bas (constaté : niveau 0
+		 * = allumée). Laissé non configuré, le pad flottait et la LED s'allumait
+		 * au toucher (couplage avec l'IRQ tactile voisine).
 		 */
 		led-camera {
 			label = "camera";
-			gpios = <&gpio1 5 GPIO_ACTIVE_HIGH>;
+			gpios = <&gpio1 5 GPIO_ACTIVE_LOW>;
 			default-state = "off";
 		};
 	};
@@ -124,10 +125,18 @@
 	};
 
 	/*
-	 * GPIO4_IO22 = reset de la DVF99 (DECT + audio). Volontairement NON décrit :
-	 * la DVF99 fournit l'horloge du switch Ethernet (cartes rév. ≤ 11), un reset
-	 * coupe le réseau. Voir docs/hardware.md.
+	 * GPIO4_IO22 = reset de la DVF99 (DECT + audio), actif bas. La DVF99 fournit
+	 * l'horloge du switch Ethernet (cartes rév. ≤ 11) : on la tient HORS reset
+	 * en permanence. Sans ce hog, le pad DISP0_DAT1 restait sur sa fonction par
+	 * défaut (donnée d'affichage IPU1) et le niveau du reset n'était pas maîtrisé.
+	 * Un futur pilote DECT pourra reprendre la ligne. Voir docs/hardware.md.
 	 */
+	dvf99-reset-hog {
+		gpio-hog;
+		gpios = <22 GPIO_ACTIVE_LOW>;
+		output-low;			/* logique : reset relâché (niveau haut) */
+		line-name = "dvf99-reset";
+	};
 };
 
 &uart2 {
@@ -333,7 +342,9 @@
 		fsl,pins = <
 			0x178 0x48c 0x000 0x5 0x0 0xb0b1	/* DISP0_DAT2 = GPIO4_IO23, ventilateur */
 			0x244 0x614 0x000 0x5 0x0 0xb0b0	/* GPIO_8 = GPIO1_IO08, reset Wi-Fi */
-			0x23c 0x60c 0x000 0x5 0x0 0x130b0	/* GPIO_5 = GPIO1_IO05, LED caméra, pull-down */
+			0x23c 0x60c 0x000 0x5 0x0 0x1b0b0	/* GPIO_5 = GPIO1_IO05, LED caméra (active basse), pull-up */
+			0x174 0x488 0x000 0x5 0x0 0x0b0b0	/* DISP0_DAT1 = GPIO4_IO22, reset DVF99 (cf. vendeur) */
+			0x17c 0x490 0x000 0x5 0x0 0x1b0b0	/* DISP0_DAT3 = GPIO4_IO24, détection PoE (entrée) */
 		>;
 	};
 

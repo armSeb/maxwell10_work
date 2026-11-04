@@ -32,7 +32,7 @@ Secure boot HAB **fermé** (`HAB_CFG_CLOSED`, état `TRUSTED`) : U-Boot authenti
 | Bluetooth | Atheros **AR3002** | UART + rfkill GPIO4_IO7 | hci_uart (ath3k) |
 | Audio BT (SCO) | AR3002 ↔ SSI2 | AUDMUX int 7 ↔ ext 5 | — |
 | **DECT + audio** | **DSPG DVF9919** | UART3 (`ttymxc2`), TDM ↔ SSI1, AUDMUX int 2 ↔ ext 4, reset GPIO4_IO22 | à écrire (voir [dect-cmbs.md](dect-cmbs.md)) |
-| Caméra | OmniVision OV9740 MIPI CSI-2 1 voie | i2c1 @ 0x10, PWDN GPIO5_IO24, reset GPIO5_IO23, LED GPIO1_IO5 | à voir (driver soc_camera retiré) |
+| Caméra | OmniVision OV9740 (LED d'activité GPIO1_IO5, **active basse**) MIPI CSI-2 1 voie | i2c1 @ 0x10, PWDN GPIO5_IO24, reset GPIO5_IO23, LED GPIO1_IO5 | à voir (driver soc_camera retiré) |
 | VPU | CODA960 | — | coda |
 | GPU | Vivante GC2000 / GC320 / GC355 | — | etnaviv |
 | USB host | hub SMSC USB2512 sur usbh1 (2 ports A) | — | ci_hdrc |
@@ -57,6 +57,8 @@ Sur les cartes de révision ≤ 11, **le quartz du switch Marvell est fourni par
 Un reset de la DVF99 coupe brièvement le switch : il faut relancer les PHY (`lan`, `pc`) ensuite
 (workaround Gigaset « AFM-307 », présent aussi dans leur driver DSA). Le GPIO de reset de la DVF99
 ne doit donc jamais être tenu à l'état actif.
+Sous mainline, le DT le tient **relâché** par un gpio-hog (pad DISP0_DAT1 muxé en GPIO) ; sans cela le pad restait
+sur sa fonction d'affichage par défaut et le switch n'était pas détecté.
 
 ## Partitions eMMC (vendeur)
 

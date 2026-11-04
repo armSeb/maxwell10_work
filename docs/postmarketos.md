@@ -119,23 +119,23 @@ sauf mention contraire.
 | UART2 console | ✅ testé (image de dump) | |
 | eMMC (usdhc3) | ✅ testé (image de dump) | lecture seule par convention |
 | microSD (usdhc4) | ✅ | `mmcblk3` sous mainline ; boot et rootfs pmOS |
-| Écran LVDS 1280×800 | ✅ écran de démarrage affiché |
+| Écran LVDS 1280×800 | ✅ | écran de démarrage affiché ; clavier buffyboard invisible (en cours) |
 | Rétroéclairage | 🧪 | PWM1, 50 µs |
-| Tactile FT5x06 | 🧪 IRQ vue (le toucher allumait la LED caméra flottante, corrigé) |
+| Tactile FT5x06 | ✅ | `edt_ft5x06` sur i2c-2 @ 0x38, saisie buffyboard OK |
 | Bouton power | 🧪 | GPIO4_IO10 |
-| Ethernet (FEC + 88E6320 DSA) | 🧪 | ports `lan` et `pc` ; délais RGMII mis côté switch (`rgmii-id` sur le port CPU), à confirmer |
+| Ethernet (FEC + 88E6320 DSA) | ⚠️ | FEC OK (lien fixe 1 Gb/s) mais switch non détecté au premier boot, ni `lan` ni `pc` ; piste : reset DVF99 non maîtrisé (horloge du switch), corrigé par hog — à revérifier |
 | USB OTG (gadget) | ✅ `usb0` en 172.16.42.1 |
 | USB hôte (hub USB2512) | 🧪 | |
-| Wi-Fi AR6003 (usdhc1) | 🧪 | `ath6kl_sdio` + `linux-firmware-ath6k` (sous-paquet nonfree-firmware) |
+| Wi-Fi AR6003 (usdhc1) | ⚠️ | carte SDIO détectée ; firmware absent au premier boot → `linux-firmware-ath6k` désormais dépendance directe du paquet device. Idéalement, reprendre le `bdata.bin` (calibration) d'Android, non publié |
 | NOR SPI | 🧪 | partitions en lecture seule |
-| Ventilateur | ✅ tourne (à fond : gpio-hog) |
+| Ventilateur | ✅ | tourne à fond (gpio-hog) en attendant la régulation thermique |
 | Watchdog | 🧪 | servi par le noyau |
 | GPU (etnaviv), VPU | ⏳ | modules activés, non décrits au-delà de imx6q.dtsi |
 | Capteur de lumière ISL29023 | ⏳ | bus à identifier |
 | Bluetooth AR3002 | ⏳ | |
 | Caméra OV9740 | ⏳ | |
 | HDMI | ⏳ | |
-| DECT / audio DVF99 | ⏳ | **ne jamais décrire son reset (GPIO4_IO22)** : il coupe l'horloge du switch |
+| DECT / audio DVF99 | ⏳ | reset GPIO4_IO22 (actif bas) tenu **relâché** par un gpio-hog : la DVF99 fournit l'horloge du switch. Ne jamais le tenir actif |
 
 ## Si ça ne démarre pas
 
