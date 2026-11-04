@@ -1081,7 +1081,8 @@ static struct pcm *aud_open(int card, unsigned flags)
 		.channels = AUD_CH, .rate = 8000, .period_size = AUD_FR,
 		.period_count = 4, .format = PCM_FORMAT_S16_LE,
 	};
-	struct pcm *p = pcm_open(card, 0, flags, &cfg);
+	/* PCM_NORESTART : les sous-débits remontent ici au lieu d'être masqués */
+	struct pcm *p = pcm_open(card, 0, flags | PCM_NORESTART, &cfg);
 	if (!p || !pcm_is_ready(p)) {
 		out("audio : ouverture %s impossible : %s\n", flags & PCM_IN ? "capture" : "lecture",
 		    p ? pcm_get_error(p) : "?");
@@ -1097,6 +1098,8 @@ static void *aud_play(void *arg)
 	int spk = aud_fifo("speaker"), hs = aud_fifo("handset");
 	int16_t s[2 * AUD_FR], h[2 * AUD_FR], buf[AUD_CH * AUD_FR];
 	struct pcm *p = NULL;
+	unsigned long ok = 0, bad = 0;
+	double stat = now() + 10.0;
 	while (!stop_req) {
 		if (!p) {
 			int c = aud_card();
@@ -1112,6 +1115,14 @@ static void *aud_play(void *arg)
 			f[4] = s[2 * i]; f[5] = s[2 * i + 1];
 		}
 		int r = pcm_writei(p, buf, AUD_FR);
+		if (r >= 0) ok++; else bad++;
+		if (now() > stat) {
+			unsigned avail = 0; struct timespec ts;
+			pcm_get_htimestamp(p, &avail, &ts);
+			out("audio : 10 s : %lu périodes écrites, %lu erreurs, état %d, libre %u\n",
+			    ok, bad, pcm_state(p), avail);
+			ok = bad = 0; stat = now() + 10.0;
+		}
 		if (r < 0) {
 			aud_err(p, "écriture", r);
 			if (pcm_prepare(p) < 0) { pcm_close(p); p = NULL; sleep(1); }
