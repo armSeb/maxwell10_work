@@ -1022,6 +1022,7 @@ static void spk_amp(int fd, struct decoder *d, int on)
  * woofer = AMP_OUT2/AMP_OUT3 en pont (DAC0 / DAC0 inversé), slots TDM 8..11 ;
  * tweeter = second canal, slots 4..7, sans extrémité ; ampli sur GPIO D10.
  * -S autre que DAC0 : liaison analogique (ex. 22 = DIFFIN0 → micro dans le HP). */
+static int settle_s = 30;	/* -I : attente du combiné avant d'ouvrir les canaux (service) */
 static volatile sig_atomic_t stop_req;
 
 /* ---------- moteur audio (-A) ------------------------------------------------
@@ -1307,6 +1308,18 @@ static void on_stop(int sig) { (void)sig; stop_req = 1; }
 static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, int hold, int keep)
 {
 	if (do_init(fd, d)) return 1;
+	/* Après l'init, la base continue de se mettre en route (appairages, radio) :
+	 * ouvrir les canaux AFE trop tôt l'empêche de retrouver le combiné. On
+	 * attend qu'il soit signalé (HS_IN_RANGE) ou au plus -I secondes. */
+	if (keep && settle_s > 0) {
+		out("4) attente du combiné (HS_IN_RANGE, %d s au plus)\n", settle_s);
+		d->want = 8; d->want_seen = 0;
+		double end = now() + settle_s;
+		while (now() < end && !d->want_seen) read_for(fd, d, 0.5);
+		d->want = 0;
+		out(d->want_seen ? "   combiné présent\n" : "   pas de combiné signalé, on continue\n");
+		if (d->want_seen) read_for(fd, d, 2.0);
+	}
 	/* une instance précédente tuée sans libérer laisse ses canaux AFE pris
 	 * (la classe D est alors refusée) : on libère les identifiants connus */
 	{
@@ -1525,7 +1538,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -1550,6 +1563,7 @@ int main(int argc, char **argv)
 		case 'A': audio_on = 1; break;
 		case 'X': tweeter_pct = atoi(optarg); break;
 		case 'M': audio_nomic = 1; break;
+		case 'I': settle_s = atoi(optarg); break;
 		case 'D': audio_probe = atoi(optarg) % 3; break;
 		default: goto usage;
 		}

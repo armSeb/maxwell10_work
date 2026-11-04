@@ -443,3 +443,20 @@ ne peut prendre cette forme. D'où la disposition d'Android, telle quelle :
   sert les tubes ; l'arriéré de plus de 120 ms est jeté, les manques complétés de silence ;
 - PulseAudio : `module-pipe-sink` ×2 et `module-pipe-source` (`/etc/pulse/default.pa.d/dvf99.pa`), la
   carte brute est ignorée (`PULSE_IGNORE`, règle udev `61-dvf99-pulseaudio.rules`).
+
+### Robustesse (2026-11-04, soir)
+
+- **Redémarrages à chaud** du service (HELLO + SYS_START sur une pile déjà lancée) : la base finit par
+  refuser des canaux ou ne plus fournir l'horloge TDM. `dvf99 reset` / `-R` (SYS_RESET de la pile) rend
+  l'horloge mais **casse la liaison radio** avec le combiné : à éviter. Le démarrage propre reste celui du
+  boot (U-Boot du module → `run bootm`). À faire : reset matériel par GPIO4_IO22, comme Android.
+- **Combiné** : ouvrir les canaux AFE juste après l'init empêche la base de retrouver le combiné. Le mode
+  service attend désormais `HS_IN_RANGE` (au plus 30 s, `-I`) avant d'ouvrir les canaux.
+- **Appairage** : `dvf99 register` (CORD_OPENREG 120 s) réinscrit un combiné ; la base écrit le nouvel
+  appairage dans l'EEPROM émulée (zone `0xa08`..). Après une réinscription, **ne plus restaurer** l'ancienne
+  copie de l'EEPROM : le combiné et la base n'auraient plus la même clé.
+- **Micro** : `module-pipe-source` refuse un tube existant ; PulseAudio crée `/run/dvf99/mic`
+  (répertoire 1777 créé au boot par tmpfiles.d) et dvf99 l'ouvre dès qu'il apparaît.
+
+Validé : haut-parleur (woofer + tweeter classe D, réglages par défaut), lecture vers le combiné et
+enregistrement de son micro sous PulseAudio.
