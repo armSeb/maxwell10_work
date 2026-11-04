@@ -439,7 +439,7 @@ ne peut prendre cette forme. D'où la disposition d'Android, telle quelle :
 | 4-5 (`0x0F00`) | woofer, AMP_OUT2/3 | 4, 5 | `/run/dvf99/speaker` → sortie « Haut-parleur » (par défaut) |
 
 - noyau : composant `dvf9919` en 8 kHz / 6 voies, DT : mots 0..5 en émission et réception ;
-- `dvf99 -A` (paquet device, lié à tinyalsa) ouvre la carte, range / extrait les paires d'échantillons et
+- `dvf99 -A` (accès ALSA direct par ioctl ; tinyalsa lisait mal l’état mmapé en armv7 time64) ouvre la carte, range / extrait les paires d'échantillons et
   sert les tubes ; l'arriéré de plus de 120 ms est jeté, les manques complétés de silence ;
 - PulseAudio : `module-pipe-sink` ×2 et `module-pipe-source` (`/etc/pulse/default.pa.d/dvf99.pa`), la
   carte brute est ignorée (`PULSE_IGNORE`, règle udev `61-dvf99-pulseaudio.rules`).

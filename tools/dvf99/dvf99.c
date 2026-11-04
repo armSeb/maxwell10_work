@@ -1001,33 +1001,27 @@ static void spk_amp(int fd, struct decoder *d, int on)
  * -S autre que DAC0 : liaison analogique (ex. 22 = DIFFIN0 → micro dans le HP). */
 static volatile sig_atomic_t stop_req;
 
-#ifdef DVF99_AUDIO
 /* ---------- moteur audio (-A) ------------------------------------------------
  * La carte ALSA « DVF99 » est en 8 kHz, 6 voies = les mots 0..5 de la trame TDM.
  * Un flux PCM linéaire 16 kHz y occupe deux mots consécutifs (deux échantillons
  * successifs) : appel = voies 0-1, tweeter = 2-3, woofer = 4-5. Ce découpage ne
  * s'exprime pas en ALSA ; dvf99 le fait ici et offre à PulseAudio des tubes
  * nommés mono 16 kHz S16 : /run/dvf99/speaker et /run/dvf99/handset (sorties,
- * module-pipe-sink), /run/dvf99/mic (micro du combiné, module-pipe-source). */
+ * module-pipe-sink), /run/dvf99/mic (micro du combiné, module-pipe-source).
+ * Accès ALSA direct par ioctl (HW/SW_PARAMS, WRITEI/READI) : ni alsa-lib ni
+ * tinyalsa, dont la lecture de l'état mmapé est fausse en armv7 time64. */
 #include <pthread.h>
+#include <limits.h>
 #include <sys/ioctl.h>
-#include <tinyalsa/pcm.h>
+#include <sound/asound.h>
 
 #define AUD_DIR		"/run/dvf99"
 #define AUD_FR		160		/* trames 8 kHz par période (20 ms) */
+#define AUD_PERIODS	4
 #define AUD_CH		6
 static int tweeter_pct = 50;		/* -X : niveau du tweeter en % (écrêtage des aigus à 100) */
 static int audio_on;			/* -A */
 static int audio_nomic;			/* -M : pas de capture (micro du combiné) */
-
-/* journal des erreurs PCM, limité à une ligne toutes les 5 s */
-static void aud_err(struct pcm *p, const char *what, int r)
-{
-	static double last;
-	if (now() - last < 5.0) return;
-	last = now();
-	out("audio : %s : %d (%s), état %d\n", what, r, pcm_get_error(p), pcm_state(p));
-}
 
 static int aud_card(void)
 {
@@ -1075,21 +1069,78 @@ static void aud_take(int fd, int16_t *v, size_t n)
 	memset((uint8_t *)v + got, 0, n - got);
 }
 
-static struct pcm *aud_open(int card, unsigned flags)
+static void hp_mask(struct snd_pcm_hw_params *p, int n, unsigned v)
 {
-	struct pcm_config cfg = {
-		.channels = AUD_CH, .rate = 8000, .period_size = AUD_FR,
-		.period_count = 4, .format = PCM_FORMAT_S16_LE,
-	};
-	/* PCM_NORESTART : les sous-débits remontent ici au lieu d'être masqués */
-	struct pcm *p = pcm_open(card, 0, flags | PCM_NORESTART, &cfg);
-	if (!p || !pcm_is_ready(p)) {
-		out("audio : ouverture %s impossible : %s\n", flags & PCM_IN ? "capture" : "lecture",
-		    p ? pcm_get_error(p) : "?");
-		if (p) pcm_close(p);
-		return NULL;
+	struct snd_mask *m = &p->masks[n - SNDRV_PCM_HW_PARAM_FIRST_MASK];
+	memset(m->bits, 0, sizeof m->bits);
+	m->bits[v >> 5] |= 1u << (v & 31);
+}
+
+static void hp_int(struct snd_pcm_hw_params *p, int n, unsigned v)
+{
+	struct snd_interval *i = &p->intervals[n - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL];
+	i->min = i->max = v; i->integer = 1;
+}
+
+/* ouvre et configure /dev/snd/pcmC<c>D0{p,c} : S16_LE, 6 voies, 8 kHz */
+static int aud_open(int card, int capture)
+{
+	char dev[64];
+	snprintf(dev, sizeof dev, "/dev/snd/pcmC%dD0%c", card, capture ? 'c' : 'p');
+	int fd = open(dev, O_RDWR);
+	if (fd < 0) { out("audio : %s : %s\n", dev, strerror(errno)); return -1; }
+	struct snd_pcm_hw_params hp;
+	memset(&hp, 0, sizeof hp);
+	for (int n = SNDRV_PCM_HW_PARAM_FIRST_MASK; n <= SNDRV_PCM_HW_PARAM_LAST_MASK; n++)
+		memset(hp.masks[n - SNDRV_PCM_HW_PARAM_FIRST_MASK].bits, 0xff,
+		       sizeof hp.masks[0].bits);
+	for (int n = SNDRV_PCM_HW_PARAM_FIRST_INTERVAL; n <= SNDRV_PCM_HW_PARAM_LAST_INTERVAL; n++) {
+		struct snd_interval *i = &hp.intervals[n - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL];
+		i->min = 0; i->max = UINT_MAX;
 	}
-	return p;
+	hp.rmask = ~0u; hp.info = ~0u;
+	hp_mask(&hp, SNDRV_PCM_HW_PARAM_ACCESS, SNDRV_PCM_ACCESS_RW_INTERLEAVED);
+	hp_mask(&hp, SNDRV_PCM_HW_PARAM_FORMAT, SNDRV_PCM_FORMAT_S16_LE);
+	hp_mask(&hp, SNDRV_PCM_HW_PARAM_SUBFORMAT, SNDRV_PCM_SUBFORMAT_STD);
+	hp_int(&hp, SNDRV_PCM_HW_PARAM_SAMPLE_BITS, 16);
+	hp_int(&hp, SNDRV_PCM_HW_PARAM_FRAME_BITS, 16 * AUD_CH);
+	hp_int(&hp, SNDRV_PCM_HW_PARAM_CHANNELS, AUD_CH);
+	hp_int(&hp, SNDRV_PCM_HW_PARAM_RATE, 8000);
+	hp_int(&hp, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, AUD_FR);
+	hp_int(&hp, SNDRV_PCM_HW_PARAM_PERIODS, AUD_PERIODS);
+	if (ioctl(fd, SNDRV_PCM_IOCTL_HW_PARAMS, &hp) < 0) {
+		out("audio : %s : HW_PARAMS : %s\n", dev, strerror(errno)); close(fd); return -1;
+	}
+	unsigned long buf = (unsigned long)AUD_FR * AUD_PERIODS;
+	struct snd_pcm_sw_params sp;
+	memset(&sp, 0, sizeof sp);
+	sp.tstamp_mode = SNDRV_PCM_TSTAMP_NONE;
+	sp.period_step = 1;
+	sp.avail_min = AUD_FR;
+	sp.start_threshold = capture ? 1 : 2 * AUD_FR;
+	sp.stop_threshold = buf;
+	sp.boundary = buf;
+	while (sp.boundary * 2 <= LONG_MAX - buf) sp.boundary *= 2;
+	if (ioctl(fd, SNDRV_PCM_IOCTL_SW_PARAMS, &sp) < 0 ||
+	    ioctl(fd, SNDRV_PCM_IOCTL_PREPARE) < 0) {
+		out("audio : %s : SW_PARAMS/PREPARE : %s\n", dev, strerror(errno)); close(fd); return -1;
+	}
+	return fd;
+}
+
+/* une période ; sous-débit / débordement → PREPARE et on continue ; -1 : rouvrir */
+static int aud_xfer(int fd, int capture, int16_t *buf, unsigned long *xruns)
+{
+	struct snd_xferi x = { .buf = buf, .frames = AUD_FR };
+	if (ioctl(fd, capture ? SNDRV_PCM_IOCTL_READI_FRAMES : SNDRV_PCM_IOCTL_WRITEI_FRAMES, &x) == 0)
+		return 0;
+	if (errno == EPIPE || errno == ESTRPIPE) {
+		(*xruns)++;
+		return ioctl(fd, SNDRV_PCM_IOCTL_PREPARE) < 0 ? -1 : 0;
+	}
+	if (errno == EINTR || errno == EAGAIN) return 0;
+	out("audio : %s : %s\n", capture ? "capture" : "lecture", strerror(errno));
+	return -1;
 }
 
 static void *aud_play(void *arg)
@@ -1097,13 +1148,13 @@ static void *aud_play(void *arg)
 	(void)arg;
 	int spk = aud_fifo("speaker"), hs = aud_fifo("handset");
 	int16_t s[2 * AUD_FR], h[2 * AUD_FR], buf[AUD_CH * AUD_FR];
-	struct pcm *p = NULL;
-	unsigned long ok = 0, bad = 0;
-	double stat = now() + 10.0;
+	int fd = -1;
+	unsigned long periods = 0, xruns = 0;
+	double stat = now() + 60.0;
 	while (!stop_req) {
-		if (!p) {
+		if (fd < 0) {
 			int c = aud_card();
-			if (c < 0 || !(p = aud_open(c, PCM_OUT))) { sleep(2); continue; }
+			if (c < 0 || (fd = aud_open(c, 0)) < 0) { sleep(2); continue; }
 			out("audio : lecture ouverte (carte %d, 8 kHz, %d voies)\n", c, AUD_CH);
 		}
 		aud_take(spk, s, sizeof s);
@@ -1114,21 +1165,15 @@ static void *aud_play(void *arg)
 			f[2] = s[2 * i] * tweeter_pct / 100; f[3] = s[2 * i + 1] * tweeter_pct / 100;
 			f[4] = s[2 * i]; f[5] = s[2 * i + 1];
 		}
-		int r = pcm_writei(p, buf, AUD_FR);
-		if (r >= 0) ok++; else bad++;
+		if (aud_xfer(fd, 0, buf, &xruns) < 0) { close(fd); fd = -1; sleep(1); continue; }
+		periods++;
 		if (now() > stat) {
-			unsigned avail = 0; struct timespec ts;
-			pcm_get_htimestamp(p, &avail, &ts);
-			out("audio : 10 s : %lu périodes écrites, %lu erreurs, état %d, libre %u\n",
-			    ok, bad, pcm_state(p), avail);
-			ok = bad = 0; stat = now() + 10.0;
-		}
-		if (r < 0) {
-			aud_err(p, "écriture", r);
-			if (pcm_prepare(p) < 0) { pcm_close(p); p = NULL; sleep(1); }
+			/* attendu : 3000 périodes par minute (20 ms) */
+			if (!quiet || xruns) out("audio : 1 min : %lu périodes, %lu sous-débits\n", periods, xruns);
+			periods = xruns = 0; stat = now() + 60.0;
 		}
 	}
-	if (p) pcm_close(p);
+	if (fd >= 0) close(fd);
 	return NULL;
 }
 
@@ -1137,23 +1182,19 @@ static void *aud_capture(void *arg)
 	(void)arg;
 	int mic = aud_fifo("mic");
 	int16_t m[2 * AUD_FR], buf[AUD_CH * AUD_FR];
-	struct pcm *p = NULL;
+	int fd = -1;
+	unsigned long xruns = 0;
 	while (!stop_req) {
-		if (!p) {
+		if (fd < 0) {
 			int c = aud_card();
-			if (c < 0 || !(p = aud_open(c, PCM_IN))) { sleep(2); continue; }
+			if (c < 0 || (fd = aud_open(c, 1)) < 0) { sleep(2); continue; }
 			out("audio : capture ouverte\n");
 		}
-		int r = pcm_readi(p, buf, AUD_FR);
-		if (r < 0) {
-			aud_err(p, "lecture micro", r);
-			if (pcm_prepare(p) < 0) { pcm_close(p); p = NULL; sleep(1); }
-			continue;
-		}
+		if (aud_xfer(fd, 1, buf, &xruns) < 0) { close(fd); fd = -1; sleep(1); continue; }
 		for (int i = 0; i < AUD_FR; i++) { m[2 * i] = buf[AUD_CH * i]; m[2 * i + 1] = buf[AUD_CH * i + 1]; }
 		if (mic >= 0 && write(mic, m, sizeof m) < 0) { /* personne n'écoute : on jette */ }
 	}
-	if (p) pcm_close(p);
+	if (fd >= 0) close(fd);
 	return NULL;
 }
 
@@ -1165,12 +1206,10 @@ static void audio_start(void)
 	pthread_create(&t, NULL, aud_play, NULL);
 	pthread_detach(t);
 	if (audio_nomic) return;
+	usleep(100000);		/* lecture d'abord : le SSI synchrone démarre sur l'émission */
 	pthread_create(&t, NULL, aud_capture, NULL);
 	pthread_detach(t);
 }
-#else
-static void audio_start(void) { }
-#endif
 static void on_stop(int sig) { (void)sig; stop_req = 1; }
 
 static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, int hold, int keep)
@@ -1393,11 +1432,9 @@ int main(int argc, char **argv)
 		case 'C': call_slots = strtoul(optarg, NULL, 0); break;
 		case 'N': auto_answer = 0; break;
 		case 'R': reset_first = 1; break;
-#ifdef DVF99_AUDIO
 		case 'A': audio_on = 1; break;
 		case 'X': tweeter_pct = atoi(optarg); break;
 		case 'M': audio_nomic = 1; break;
-#endif
 		default: goto usage;
 		}
 	}
