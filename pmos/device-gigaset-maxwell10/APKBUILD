@@ -2,7 +2,7 @@
 pkgname=device-gigaset-maxwell10
 pkgdesc="Gigaset Maxwell 10"
 pkgver=1
-pkgrel=6
+pkgrel=7
 url="https://github.com/armSeb/maxwell10_work"
 license="MIT"
 arch="armv7"
@@ -11,7 +11,7 @@ depends="
 	postmarketos-base
 	linux-gigaset-maxwell10
 	"
-makedepends="devicepkg-dev"
+makedepends="devicepkg-dev tinyalsa-dev"
 install="$pkgname.post-install"
 subpackages="$pkgname-nonfree-firmware:nonfree_firmware"
 source="
@@ -21,12 +21,16 @@ source="
 	dvf99.service
 	dvf99-service
 	80-gigaset-maxwell10.preset
+	61-dvf99-pulseaudio.rules
+	dvf99.pa
 	"
 
 build() {
 	devicepkg_build $startdir $pkgname
 	# outil CMBS de la base DECT / audio (tools/dvf99 du dépôt)
-	${CC:-gcc} $CFLAGS -Wall -o dvf99 "$srcdir"/dvf99.c
+	# -DDVF99_AUDIO : moteur audio (tinyalsa) pour PulseAudio
+	${CC:-gcc} $CFLAGS -Wall -DDVF99_AUDIO -o dvf99 "$srcdir"/dvf99.c \
+		$LDFLAGS -ltinyalsa -lpthread
 }
 
 package() {
@@ -41,6 +45,9 @@ package() {
 		"$pkgdir"/usr/lib/systemd/system/dvf99.service
 	install -Dm644 "$srcdir"/80-gigaset-maxwell10.preset \
 		"$pkgdir"/usr/lib/systemd/system-preset/80-gigaset-maxwell10.preset
+	install -Dm644 "$srcdir"/61-dvf99-pulseaudio.rules \
+		"$pkgdir"/usr/lib/udev/rules.d/61-dvf99-pulseaudio.rules
+	install -Dm644 "$srcdir"/dvf99.pa "$pkgdir"/etc/pulse/default.pa.d/dvf99.pa
 }
 
 nonfree_firmware() {

@@ -139,16 +139,16 @@
 		post-power-on-delay-ms = <10>;
 	};
 	/*
-	 * Audio de la DVF9919 (haut-parleur, micros, combiné filaire) : pas de codec
+	 * Audio de la DVF9919 (haut-parleur, micros, combiné DECT) : pas de codec
 	 * I2C, l'AFE est piloté par CMBS sur l'UART3 (dvf99.service). Le flux PCM
 	 * passe en TDM sur SSI2 ↔ AUDMUX port 2 ↔ port 4 (pads SD2_DAT0..3).
 	 * HELLO CMBS d'Android : DVF99 maître TDM, PCM 2,048 MHz, soit une trame
 	 * 8 kHz de 32 octets = 16 mots de 16 bits ; synchro mesurée : impulsion
 	 * positive d'un bit. Échantillons 16 bits, poids fort en premier.
-	 * Haut-parleur (woofer, et tweeter sur les mêmes slots) : octets 8..11 =
-	 * mots 4 et 5, PCM linéaire 16 kHz = 2 échantillons successifs par trame.
-	 * ALSA voit donc du mono 16 kHz (patch 0003 : codec dvf9919 + mono TDM
-	 * dans fsl_ssi). Voir docs/dect-cmbs.md.
+	 * Disposition d'Android (PCM linéaire 16 kHz = 2 mots consécutifs) :
+	 * mots 0-1 appel du combiné (la base l'impose au slot 0), 2-3 tweeter
+	 * (classe D), 4-5 woofer. ALSA : 8 kHz, 6 voies ; dvf99 -A reforme les
+	 * flux 16 kHz pour PulseAudio. Voir docs/dect-cmbs.md.
 	 */
 	dvf99_codec: dvf99-codec {
 		compatible = "dspg,dvf9919-pcm";
@@ -169,8 +169,8 @@
 			sound-dai = <&ssi2>;
 			dai-tdm-slot-num = <16>;
 			dai-tdm-slot-width = <16>;
-			dai-tdm-slot-tx-mask = <0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0>;
-			dai-tdm-slot-rx-mask = <0 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0>;
+			dai-tdm-slot-tx-mask = <1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0>;
+			dai-tdm-slot-rx-mask = <1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0>;
 		};
 
 		dvf99_link_codec: simple-audio-card,codec {

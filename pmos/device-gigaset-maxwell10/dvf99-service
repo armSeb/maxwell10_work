@@ -2,9 +2,10 @@
 # Lancé par dvf99.service. Réglages facultatifs dans /etc/default/dvf99 :
 #   DVF99_NVRAM=/var/lib/dvf99/nvram.bin   EEPROM émulée (copie du nvram.bin d'Android)
 #   DVF99_GAIN=32                          gain HP : 32 = 0 dB … 36 = −24 dB
-#   DVF99_OPTS=                            autres options de dvf99 (ex. -W 0x00F0)
+#   DVF99_TWEETER=50                       niveau du tweeter en % (aigus saturés à 100)
+#   DVF99_OPTS=                            autres options de dvf99 (ex. -N : pas de décroché auto)
 nv=${DVF99_NVRAM:-/var/lib/dvf99/nvram.bin}
-set -- -q -g "${DVF99_GAIN:-32}" $DVF99_OPTS
+set -- -q -A -g "${DVF99_GAIN:-32}" -X "${DVF99_TWEETER:-50}" $DVF99_OPTS
 if [ -f "$nv" ]; then
 	set -- -e "$nv" "$@"
 else

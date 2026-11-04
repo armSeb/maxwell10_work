@@ -76,9 +76,11 @@
 static FILE *journal;
 static int unsafe;
 static int quiet;		/* -q : pas de trames détaillées (service) */
-static unsigned speaker_slots = 0x0F00;	/* -P : slots du haut-parleur (woofer) */
-static int tweeter_slots = -1;		/* -W : slots du tweeter (-1 : ceux du woofer ; Android : 0x00F0) */
-static unsigned call_slots = 0xF000;	/* -C : slots du canal d'appel du combiné */
+/* Disposition TDM d'Android (octets de la trame 8 kHz) : appel 0..3,
+ * tweeter 4..7, woofer 8..11 — soit les mots 16 bits 0-1, 2-3, 4-5. */
+static unsigned speaker_slots = 0x0F00;	/* -P : slots du woofer */
+static int tweeter_slots = 0x00F0;	/* -W : slots du tweeter (-1 : ceux du woofer, 0 : aucun) */
+static unsigned call_slots = 0x000F;	/* -C : slots de l'appel du combiné (la base exige le slot 0) */
 static int tdm_type = 0;	/* -T : 0 maître (Android), 1 esclave, -1 sans config */
 
 #define dbg(...) do { if (!quiet) out(__VA_ARGS__); } while (0)
@@ -998,6 +1000,153 @@ static void spk_amp(int fd, struct decoder *d, int on)
  * tweeter = second canal, slots 4..7, sans extrémité ; ampli sur GPIO D10.
  * -S autre que DAC0 : liaison analogique (ex. 22 = DIFFIN0 → micro dans le HP). */
 static volatile sig_atomic_t stop_req;
+
+#ifdef DVF99_AUDIO
+/* ---------- moteur audio (-A) ------------------------------------------------
+ * La carte ALSA « DVF99 » est en 8 kHz, 6 voies = les mots 0..5 de la trame TDM.
+ * Un flux PCM linéaire 16 kHz y occupe deux mots consécutifs (deux échantillons
+ * successifs) : appel = voies 0-1, tweeter = 2-3, woofer = 4-5. Ce découpage ne
+ * s'exprime pas en ALSA ; dvf99 le fait ici et offre à PulseAudio des tubes
+ * nommés mono 16 kHz S16 : /run/dvf99/speaker et /run/dvf99/handset (sorties,
+ * module-pipe-sink), /run/dvf99/mic (micro du combiné, module-pipe-source). */
+#include <pthread.h>
+#include <sys/ioctl.h>
+#include <tinyalsa/pcm.h>
+
+#define AUD_DIR		"/run/dvf99"
+#define AUD_FR		160		/* trames 8 kHz par période (20 ms) */
+#define AUD_CH		6
+static int tweeter_pct = 50;		/* -X : niveau du tweeter en % (écrêtage des aigus à 100) */
+static int audio_on;			/* -A */
+
+static int aud_card(void)
+{
+	char l[64];
+	ssize_t n = readlink("/proc/asound/DVF99", l, sizeof l - 1);
+	if (n <= 0) return -1;
+	l[n] = 0;
+	int c;
+	return sscanf(l, "card%d", &c) == 1 ? c : -1;
+}
+
+static int aud_fifo(const char *name)
+{
+	char path[128];
+	snprintf(path, sizeof path, AUD_DIR "/%s", name);
+	mode_t m = umask(0);
+	if (mkfifo(path, 0666) < 0 && errno != EEXIST) perror(path);
+	umask(m);
+	/* O_RDWR : jamais de fin de fichier sans écrivain, jamais de blocage */
+	int fd = open(path, O_RDWR | O_NONBLOCK);
+	if (fd < 0) perror(path);
+	return fd;
+}
+
+/* lit jusqu'à n octets d'un tube, jette l'arriéré (> 120 ms), complète de zéros */
+static void aud_take(int fd, int16_t *v, size_t n)
+{
+	int avail = 0;
+	size_t got = 0;
+	if (fd >= 0 && ioctl(fd, FIONREAD, &avail) == 0 && (size_t)avail > 6 * n) {
+		uint8_t junk[4096];
+		size_t drop = avail - 2 * n;
+		while (drop) {
+			ssize_t r = read(fd, junk, drop < sizeof junk ? drop : sizeof junk);
+			if (r <= 0) break;
+			drop -= r;
+		}
+	}
+	while (fd >= 0 && got < n) {
+		ssize_t r = read(fd, (uint8_t *)v + got, n - got);
+		if (r <= 0) break;
+		got += r;
+	}
+	got &= ~(size_t)1;
+	memset((uint8_t *)v + got, 0, n - got);
+}
+
+static struct pcm *aud_open(int card, unsigned flags)
+{
+	struct pcm_config cfg = {
+		.channels = AUD_CH, .rate = 8000, .period_size = AUD_FR,
+		.period_count = 4, .format = PCM_FORMAT_S16_LE,
+	};
+	struct pcm *p = pcm_open(card, 0, flags, &cfg);
+	if (!p || !pcm_is_ready(p)) {
+		out("audio : ouverture %s impossible : %s\n", flags & PCM_IN ? "capture" : "lecture",
+		    p ? pcm_get_error(p) : "?");
+		if (p) pcm_close(p);
+		return NULL;
+	}
+	return p;
+}
+
+static void *aud_play(void *arg)
+{
+	(void)arg;
+	int spk = aud_fifo("speaker"), hs = aud_fifo("handset");
+	int16_t s[2 * AUD_FR], h[2 * AUD_FR], buf[AUD_CH * AUD_FR];
+	struct pcm *p = NULL;
+	while (!stop_req) {
+		if (!p) {
+			int c = aud_card();
+			if (c < 0 || !(p = aud_open(c, PCM_OUT))) { sleep(2); continue; }
+			out("audio : lecture ouverte (carte %d, 8 kHz, %d voies)\n", c, AUD_CH);
+		}
+		aud_take(spk, s, sizeof s);
+		aud_take(hs, h, sizeof h);
+		for (int i = 0; i < AUD_FR; i++) {
+			int16_t *f = buf + AUD_CH * i;
+			f[0] = h[2 * i]; f[1] = h[2 * i + 1];
+			f[2] = s[2 * i] * tweeter_pct / 100; f[3] = s[2 * i + 1] * tweeter_pct / 100;
+			f[4] = s[2 * i]; f[5] = s[2 * i + 1];
+		}
+		int r = pcm_writei(p, buf, AUD_FR);
+		if (r < 0) {
+			if (pcm_prepare(p) < 0) { pcm_close(p); p = NULL; sleep(1); }
+		}
+	}
+	if (p) pcm_close(p);
+	return NULL;
+}
+
+static void *aud_capture(void *arg)
+{
+	(void)arg;
+	int mic = aud_fifo("mic");
+	int16_t m[2 * AUD_FR], buf[AUD_CH * AUD_FR];
+	struct pcm *p = NULL;
+	while (!stop_req) {
+		if (!p) {
+			int c = aud_card();
+			if (c < 0 || !(p = aud_open(c, PCM_IN))) { sleep(2); continue; }
+			out("audio : capture ouverte\n");
+		}
+		int r = pcm_readi(p, buf, AUD_FR);
+		if (r < 0) {
+			if (pcm_prepare(p) < 0) { pcm_close(p); p = NULL; sleep(1); }
+			continue;
+		}
+		for (int i = 0; i < AUD_FR; i++) { m[2 * i] = buf[AUD_CH * i]; m[2 * i + 1] = buf[AUD_CH * i + 1]; }
+		if (mic >= 0 && write(mic, m, sizeof m) < 0) { /* personne n'écoute : on jette */ }
+	}
+	if (p) pcm_close(p);
+	return NULL;
+}
+
+static void audio_start(void)
+{
+	if (!audio_on) return;
+	mkdir(AUD_DIR, 0755);
+	pthread_t t;
+	pthread_create(&t, NULL, aud_play, NULL);
+	pthread_detach(t);
+	pthread_create(&t, NULL, aud_capture, NULL);
+	pthread_detach(t);
+}
+#else
+static void audio_start(void) { }
+#endif
 static void on_stop(int sig) { (void)sig; stop_req = 1; }
 
 static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, int hold, int keep)
@@ -1067,6 +1216,7 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 	}
 	if (keep) {
 		out("9) -k : chemin laissé ouvert (Ctrl-C pour quitter, la DVF99 garde l'état)\n");
+		audio_start();
 		struct sigaction sa = { 0 };
 		sa.sa_handler = on_stop;
 		sigaction(SIGTERM, &sa, NULL);
@@ -1197,7 +1347,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NR")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -1219,6 +1369,10 @@ int main(int argc, char **argv)
 		case 'C': call_slots = strtoul(optarg, NULL, 0); break;
 		case 'N': auto_answer = 0; break;
 		case 'R': reset_first = 1; break;
+#ifdef DVF99_AUDIO
+		case 'A': audio_on = 1; break;
+		case 'X': tweeter_pct = atoi(optarg); break;
+#endif
 		default: goto usage;
 		}
 	}
@@ -1262,6 +1416,7 @@ usage:
 			"        dvf99 [-q] [-e NVRAM] [-g GAIN] [-P SLOTS] [-W SLOTS] [-C SLOTS] [-N] service\n"
 			"          (service : touche verte du combiné = décroché automatique, -N pour non)\n"
 			"        dvf99 [-e NVRAM] param N [=HEX] [N [=HEX]…]\n"
+			"          -A : moteur audio (tubes /run/dvf99/{speaker,handset,mic}), -X : tweeter en %%\n"
 			"        dvf99 [-e NVRAM] reset   (SYS_RESET de la pile puis init ; -R : idem avant tout mode)\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;

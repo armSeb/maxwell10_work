@@ -1,0 +1,3 @@
+# La carte TDM de la DVF9919 (8 kHz, 6 voies brutes) appartient à dvf99.service :
+# PulseAudio ne doit pas l'ouvrir lui-même (il passe par les tubes de /run/dvf99).
+SUBSYSTEM=="sound", KERNEL=="card*", ATTR{id}=="DVF99", ENV{PULSE_IGNORE}="1"

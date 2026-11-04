@@ -1,13 +1,15 @@
 From: Maxwell 10 port
 Subject: [PATCH] ASoC: add the DSPG DVF9919 TDM PCM link, allow mono TDM on fsl_ssi
 
-The DVF9919 of the Gigaset Maxwell 10 takes 16 kHz mono linear PCM as two
-samples per 8 kHz TDM frame, in two consecutive 16-bit slots. Its audio front
-end is driven by CMBS from userspace, so the codec side is a stub that only
-constrains the stream (16 kHz, mono, S16_LE).
+The DVF9919 of the Gigaset Maxwell 10 exchanges 16 kHz linear PCM channels
+as two consecutive 16-bit slots of its 8 kHz TDM frame. Its audio front end
+is driven by CMBS from userspace, so the codec side is a stub that only
+constrains the stream: 8 kHz, six slots (call, tweeter, woofer), S16_LE;
+the CMBS daemon packs and unpacks the 16 kHz channels.
 
-fsl_ssi forced Normal mode for mono streams, which breaks such a layout:
-keep Network mode when a TDM layout of more than two slots was set.
+fsl_ssi forced Normal mode for mono streams, which breaks a mono stream
+spread over several TDM slots: keep Network mode when a TDM layout of more
+than two slots was set.
 ---
 diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
 index 709284248..07b61fec0 100644
@@ -49,10 +51,10 @@ index 54cbc3fea..96ee5240c 100644
  obj-$(CONFIG_SND_SOC_SSM2305)	+= snd-soc-ssm2305.o
 diff --git a/sound/soc/codecs/dvf9919.c b/sound/soc/codecs/dvf9919.c
 new file mode 100644
-index 000000000..b90f2fc6b
+index 000000000..267874cb4
 --- /dev/null
 +++ b/sound/soc/codecs/dvf9919.c
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,78 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * DSPG DVF9919 (DECT base + audio front end) — TDM side of its PCM link
@@ -60,9 +62,10 @@ index 000000000..b90f2fc6b
 + * The DVF9919 of the Gigaset Maxwell 10 has no control bus towards ASoC: its
 + * audio front end (DACs, amplifiers, microphones, routing, gains) is driven by
 + * the CMBS protocol over a UART, from userspace. This component only describes
-+ * the PCM stream the DVF9919 expects on its TDM bus once userspace has opened
-+ * a wideband linear PCM channel: 16 kHz, mono, 16-bit (two samples per 8 kHz
-+ * TDM frame, in two consecutive 16-bit slots, see the board DT).
++ * the TDM bus as the board uses it: 8 kHz frames, six 16-bit slots carrying
++ * the handset call, tweeter and woofer channels. Each of those is 16 kHz
++ * linear PCM, i.e. two consecutive slots per frame; userspace (the CMBS
++ * daemon) packs and unpacks them, see the board DT.
 + */
 +#include <linux/mod_devicetable.h>
 +#include <linux/module.h>
@@ -93,16 +96,16 @@ index 000000000..b90f2fc6b
 +	.name = "dvf9919-pcm",
 +	.playback = {
 +		.stream_name	= "Playback",
-+		.channels_min	= 1,
-+		.channels_max	= 1,
-+		.rates		= SNDRV_PCM_RATE_16000,
++		.channels_min	= 6,
++		.channels_max	= 6,
++		.rates		= SNDRV_PCM_RATE_8000,
 +		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
 +	},
 +	.capture = {
 +		.stream_name	= "Capture",
-+		.channels_min	= 1,
-+		.channels_max	= 1,
-+		.rates		= SNDRV_PCM_RATE_16000,
++		.channels_min	= 6,
++		.channels_max	= 6,
++		.rates		= SNDRV_PCM_RATE_8000,
 +		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
 +	},
 +};

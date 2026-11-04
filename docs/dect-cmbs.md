@@ -419,3 +419,27 @@ le flux TDM lui parvient bien.
 
 Un `dvf99` arrêté sans libérer ses canaux AFE laisse la ressource classe D prise (refus code 5 au
 démarrage suivant) : le mode service libère désormais 0xF0..0xF3 au démarrage et ses canaux sur SIGTERM.
+
+## Moteur audio : haut-parleur + combiné sous PulseAudio (noyau pkgrel 13, device pkgrel 7)
+
+Constats sur la base réelle :
+
+- le canal d'appel n'est accepté qu'au **slot 0, octets contigus** (`0x000F` → OK ; `0x0033`, `0xF000` →
+  refus), comme Android (`appmedia_CallObjMediaStart` avec un décalage de slot 0) ;
+- les canaux AFE locaux acceptent des slots non contigus (`0x3300`) ; woofer et classe D sur les mêmes
+  slots passent après un SYS_RESET de la pile, mais le classe D sature les aigus à pleine échelle.
+
+Un flux 16 kHz occupe **deux mots consécutifs** par trame 8 kHz : aucune voie d'un flux ALSA entrelacé
+ne peut prendre cette forme. D'où la disposition d'Android, telle quelle :
+
+| Mots TDM (octets) | Canal CMBS | Voies ALSA (8 kHz, 6 voies) | Tube PulseAudio (16 kHz mono) |
+|---|---|---|---|
+| 0-1 (`0x000F`) | appel du combiné | 0, 1 | `/run/dvf99/handset` → sortie « Combiné » ; capture → `/run/dvf99/mic` → entrée « Micro du combiné » |
+| 2-3 (`0x00F0`) | tweeter, classe D | 2, 3 | copie du haut-parleur à `DVF99_TWEETER` % (50 par défaut) |
+| 4-5 (`0x0F00`) | woofer, AMP_OUT2/3 | 4, 5 | `/run/dvf99/speaker` → sortie « Haut-parleur » (par défaut) |
+
+- noyau : composant `dvf9919` en 8 kHz / 6 voies, DT : mots 0..5 en émission et réception ;
+- `dvf99 -A` (paquet device, lié à tinyalsa) ouvre la carte, range / extrait les paires d'échantillons et
+  sert les tubes ; l'arriéré de plus de 120 ms est jeté, les manques complétés de silence ;
+- PulseAudio : `module-pipe-sink` ×2 et `module-pipe-source` (`/etc/pulse/default.pa.d/dvf99.pa`), la
+  carte brute est ignorée (`PULSE_IGNORE`, règle udev `61-dvf99-pulseaudio.rules`).
