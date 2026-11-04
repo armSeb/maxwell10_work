@@ -732,6 +732,9 @@ static unsigned ie_media_channel(uint8_t *b, unsigned at, uint32_t id, uint32_t 
 #define IE_CALLPROGRESS		5
 #define IE_MEDIACHANNEL_	10
 static int auto_answer = 1;	/* -N : ne pas décrocher automatiquement */
+/* l'appel a fini en bande étroite (PCM linéaire 8 kHz, un seul mot) : le
+ * moteur audio n'écrit/lit alors que le mot 0 */
+static volatile int call_nb;
 
 static void call_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n)
 {
@@ -802,8 +805,13 @@ static void call_step(struct decoder *d)
 	}
 	if (d->call.start && d->call.chan_known && now() >= d->call.retry_at) {
 		d->call.start = 0; d->call.started = 1; d->call.tries++;
-		out("   appel : DEM_CHANNEL_START canal 0x%x, slots 0x%04x\n", d->call.chan, call_slots);
-		n = ie_media_channel(b, 0, d->call.chan, call_slots);
+		/* refus en large bande : on alterne avec la bande étroite (2 octets
+		 * au slot 0), au cas où le lien radio n'aurait négocié que du NB */
+		call_nb = !(d->call.tries & 1);
+		unsigned mask = call_nb ? (call_slots & 0x3 ? 0x3 : call_slots & 0xFF) : call_slots;
+		out("   appel : DEM_CHANNEL_START canal 0x%x, slots 0x%04x (%s)\n", d->call.chan, mask,
+		    call_nb ? "bande étroite" : "large bande");
+		n = ie_media_channel(b, 0, d->call.chan, mask);
 		call_send(d, EV_DEM_CHANNEL_START, b, n);
 	}
 	if (d->call.release) {
@@ -1195,7 +1203,8 @@ static void *aud_play(void *arg)
 		jb_take(&hs, h, 2 * AUD_FR);
 		for (int i = 0; i < AUD_FR; i++) {
 			int16_t *f = buf + AUD_CH * i;
-			f[0] = h[2 * i]; f[1] = h[2 * i + 1];
+			if (call_nb) { f[0] = h[2 * i]; f[1] = 0; }	/* 8 kHz : 1 échantillon sur 2 */
+			else { f[0] = h[2 * i]; f[1] = h[2 * i + 1]; }
 			f[2] = s[2 * i] * tweeter_pct / 100; f[3] = s[2 * i + 1] * tweeter_pct / 100;
 			f[4] = s[2 * i]; f[5] = s[2 * i + 1];
 		}
@@ -1225,7 +1234,10 @@ static void *aud_capture(void *arg)
 			out("audio : capture ouverte\n");
 		}
 		if (aud_xfer(fd, 1, buf, &xruns) < 0) { close(fd); fd = -1; sleep(1); continue; }
-		for (int i = 0; i < AUD_FR; i++) { m[2 * i] = buf[AUD_CH * i]; m[2 * i + 1] = buf[AUD_CH * i + 1]; }
+		for (int i = 0; i < AUD_FR; i++) {
+			m[2 * i] = buf[AUD_CH * i];
+			m[2 * i + 1] = call_nb ? buf[AUD_CH * i] : buf[AUD_CH * i + 1];
+		}
 		if (mic >= 0 && write(mic, m, sizeof m) < 0) { /* personne n'écoute : on jette */ }
 	}
 	if (fd >= 0) close(fd);
