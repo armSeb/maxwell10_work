@@ -5,7 +5,13 @@
  *   dvf99 [-d TTY] [-l JOURNAL] console   console du U-Boot de la DVF99 (ligne à ligne)
  *   dvf99 [-d TTY] [-l JOURNAL] boot      démarre la pile cordless (« run bootm »)
  *   dvf99 [-d TTY] [-l JOURNAL] sniff     décode les trames CMBS reçues
- *   dvf99 [-d TTY] [-l JOURNAL] init      boot si besoin, puis Hello, SYS_START, version
+ *   dvf99 [-d TTY] [-l JOURNAL] [-e NVRAM] init
+ *                                         boot si besoin, puis Hello et SYS_START
+ *
+ * -e NVRAM : EEPROM émulée de la base (copie de /data/cmbs/nvram.bin d'Android,
+ * propre à l'appareil). Avec elle, dvf99 répond aux demandes PARAM_AREA_GET de
+ * la DVF99 et enregistre ses PARAM_AREA_SET dans ce fichier (travailler sur une
+ * COPIE, garder l'original de côté).
  *   dvf99 -f CAPTURE sniff                décode un fichier brut (capture UART)
  *
  * Sous Android, CMBSServer pulse le reset de la DVF99, envoie « run bootm » à son
@@ -28,6 +34,7 @@
 #include <string.h>
 #include <termios.h>
 #include <time.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define SYNC 0xDADADADAu
@@ -94,6 +101,12 @@ static int open_tty(const char *path)
 #define EV_SYS_START		25
 #define EV_SYS_START_RES	26
 #define EV_TARGET_UP		125
+#define EV_PARAM_AREA_GET	76
+#define EV_PARAM_AREA_GET_RES	77
+#define EV_PARAM_AREA_SET	78
+#define EV_PARAM_AREA_SET_RES	79
+#define IE_RESPONSE		22
+#define IE_PARAMETER_AREA	26
 
 static const char *event_name(unsigned id)
 {
@@ -108,6 +121,12 @@ static const char *event_name(unsigned id)
 	case 25:  return "CMBS_EV_DSR_SYS_START";
 	case 29:  return "CMBS_EV_DSR_SYS_STATUS";
 	case 30:  return "CMBS_EV_DSR_SYS_LOG";
+	case 74:  return "CMBS_EV_DSR_PARAM_UPDATED";
+	case 75:  return "CMBS_EV_DSR_PARAM_AREA_UPDATED";
+	case 76:  return "CMBS_EV_DSR_PARAM_AREA_GET";
+	case 77:  return "CMBS_EV_DSR_PARAM_AREA_GET_RES";
+	case 78:  return "CMBS_EV_DSR_PARAM_AREA_SET";
+	case 79:  return "CMBS_EV_DSR_PARAM_AREA_SET_RES";
 	case 16:  return "CMBS_EV_DSR_PARAM_SET_RES";
 	case 26:  return "CMBS_EV_DSR_SYS_START_RES";
 	case 125: return "CMBS_EV_DSR_TARGET_UP";
@@ -145,9 +164,17 @@ struct decoder {
 	size_t tlen;
 	unsigned frames;
 	unsigned last_ev;
+	unsigned want;		/* événement attendu par wait_event */
+	int want_seen;
 	int prompt;		/* invite « DVF99 # » du U-Boot du module vue */
 	double t0;
+	int fd;			/* -1 pour un fichier de capture */
+	int eep_fd;		/* EEPROM émulée (-e), -1 sinon */
+	uint8_t *eep;
+	size_t eep_size;
 };
+
+static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n);
 
 static void flush_text(struct decoder *d)
 {
@@ -187,12 +214,14 @@ static void feed(struct decoder *d, uint8_t c)
 			    now() - d->t0, nr, ev, ev, event_name(ev), total, plen);
 			d->frames++;
 			d->last_ev = ev;
+			if (ev == d->want) d->want_seen = 1;
 			if (plen > MAX_PARAMS) {
 				out("      longueur de paramètres incohérente, resynchronisation\n");
 				d->state = 0; return;
 			}
 			d->need = plen; d->got = 0;
 			d->state = plen ? 2 : 0;
+			if (!plen) on_frame(d, ev, NULL, 0);
 		}
 		return;
 	case 2:
@@ -200,6 +229,7 @@ static void feed(struct decoder *d, uint8_t c)
 		if (d->got == d->need) {
 			hexdump(d->params, d->need);
 			d->state = 0;
+			on_frame(d, d->last_ev, d->params, d->need);
 		}
 		return;
 	}
@@ -246,10 +276,72 @@ static int send_msg(int fd, struct decoder *d, unsigned ev, const uint8_t *p, un
 static int wait_event(int fd, struct decoder *d, unsigned ev, double seconds)
 {
 	double end = now() + seconds;
-	while (now() < end)
-		if (read_for(fd, d, end - now()) && d->last_ev == ev)
-			return 1;
-	return 0;
+	d->want = ev; d->want_seen = 0;
+	while (now() < end && !d->want_seen)
+		read_for(fd, d, end - now());
+	d->want = 0;
+	return d->want_seen;
+}
+
+static unsigned le16(const uint8_t *p) { return p[0] | p[1] << 8; }
+static uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
+static void put16(uint8_t *p, unsigned v) { p[0] = v & 0xff; p[1] = v >> 8; }
+static void put32(uint8_t *p, uint32_t v) { put16(p, v & 0xffff); put16(p + 2, v >> 16); }
+
+/* cherche l'IE « type » ; renvoie sa valeur et sa longueur */
+static const uint8_t *ie_find(const uint8_t *p, unsigned n, unsigned type, unsigned *len)
+{
+	for (unsigned i = 0; i + 4 <= n; ) {
+		unsigned t = le16(p + i), l = le16(p + i + 2);
+		if (i + 4 + l > n) break;
+		if (t == type) { *len = l; return p + i + 4; }
+		i += 4 + l;
+	}
+	return NULL;
+}
+
+/*
+ * Réponses automatiques de l'hôte (relevées dans app_OnParamAreaGet/Set de
+ * cmbs_host) : la DVF99 lit et écrit son EEPROM, émulée par l'hôte.
+ *   GET_RES = IE PARAMETER_AREA (zone u8, offset u32, longueur u16, données)
+ *             + IE RESPONSE (0 = OK, 1 = erreur)
+ *   SET_RES = IE RESPONSE
+ */
+static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n)
+{
+	if (d->fd < 0 || (ev != EV_PARAM_AREA_GET && ev != EV_PARAM_AREA_SET))
+		return;
+	unsigned l = 0;
+	const uint8_t *a = ie_find(p, n, IE_PARAMETER_AREA, &l);
+	if (!a || l < 7) { out("      PARAM_AREA sans IE exploitable, ignoré\n"); return; }
+	unsigned area = a[0], len = le16(a + 5);
+	uint32_t off = le32(a + 1);
+	int ok = d->eep && area == 0 && (uint64_t)off + len <= d->eep_size;
+	uint8_t r[16 + MAX_PARAMS];
+	unsigned rn = 0;
+
+	if (ev == EV_PARAM_AREA_GET) {
+		unsigned dl = ok ? len : 0;
+		if (12 + dl + 5 > sizeof r) { ok = 0; dl = 0; }
+		put16(r, IE_PARAMETER_AREA); put16(r + 2, 7 + dl);
+		r[4] = area; put32(r + 5, off); put16(r + 9, dl);
+		if (dl) memcpy(r + 11, d->eep + off, dl);
+		rn = 11 + dl;
+		out("      → lecture EEPROM zone %u, offset 0x%x, %u octets : %s\n",
+		    area, off, len, ok ? "fournie" : d->eep ? "hors limites" : "pas d'EEPROM (-e)");
+	} else {
+		if (ok && l >= 7 + len) {
+			memcpy(d->eep + off, a + 7, len);
+			if (pwrite(d->eep_fd, a + 7, len, off) != (ssize_t)len || fsync(d->eep_fd) < 0) {
+				perror("écriture EEPROM"); ok = 0;
+			}
+		} else ok = 0;
+		out("      → écriture EEPROM zone %u, offset 0x%x, %u octets : %s\n",
+		    area, off, len, ok ? "enregistrée" : "refusée");
+	}
+	put16(r + rn, IE_RESPONSE); put16(r + rn + 2, 1); r[rn + 4] = ok ? 0 : 1;
+	rn += 5;
+	send_msg(d->fd, d, ev == EV_PARAM_AREA_GET ? EV_PARAM_AREA_GET_RES : EV_PARAM_AREA_SET_RES, r, rn);
 }
 
 static int dangerous(const char *line)
@@ -326,16 +418,14 @@ static int mode_init(int fd, struct decoder *d)
 		out("=> pas de HELLO_RPLY en 10 s\n");
 		return 3;
 	}
+	if (d->need >= 4)
+		out("   pile cordless version %x.%02x, build %x\n", d->params[1], d->params[0], le16(d->params + 2));
 	out("3) SYS_START\n");
 	send_msg(fd, d, EV_SYS_START, NULL, 0);
 	if (!wait_event(fd, d, EV_SYS_START_RES, 10.0))
 		out("=> pas de SYS_START_RES en 10 s\n");
-	out("4) version du firmware\n");
-	send_msg(fd, d, EV_FW_VERSION_GET, NULL, 0);
-	if (!wait_event(fd, d, EV_FW_VERSION_GET_RES, 5.0))
-		out("=> pas de FW_VERSION_GET_RES en 5 s\n");
-	out("5) écoute 10 s des événements spontanés\n");
-	read_for(fd, d, 10.0);
+	out("4) écoute 30 s (réponses automatiques EEPROM si -e)\n");
+	read_for(fd, d, 30.0);
 	return 0;
 }
 
@@ -360,32 +450,45 @@ static int sniff_file(const char *path, struct decoder *d)
 
 int main(int argc, char **argv)
 {
-	const char *tty = "/dev/ttymxc2", *file = NULL;
+	const char *tty = "/dev/ttymxc2", *file = NULL, *eep = NULL;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:U")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:U")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
 			  if (!journal) { perror(optarg); return 1; } break;
 		case 'f': file = optarg; break;
+		case 'e': eep = optarg; break;
 		case 'U': unsafe = 1; break;
 		default: goto usage;
 		}
 	}
 	if (optind != argc - 1) goto usage;
-	struct decoder d = { .t0 = now() };
+	struct decoder d = { .t0 = now(), .fd = -1, .eep_fd = -1 };
+	if (eep) {
+		d.eep_fd = open(eep, O_RDWR);
+		struct stat st;
+		if (d.eep_fd < 0 || fstat(d.eep_fd, &st) < 0) { perror(eep); return 1; }
+		d.eep_size = st.st_size;
+		d.eep = malloc(d.eep_size ? d.eep_size : 1);
+		if (!d.eep || pread(d.eep_fd, d.eep, d.eep_size, 0) != (ssize_t)d.eep_size) {
+			perror(eep); return 1;
+		}
+		out("EEPROM émulée : %s, %zu octets\n", eep, d.eep_size);
+	}
 	const char *mode = argv[optind];
 	if (file) {
 		if (strcmp(mode, "sniff")) goto usage;
 		return sniff_file(file, &d);
 	}
 	int fd = open_tty(tty);
+	d.fd = fd;
 	if (!strcmp(mode, "console")) return mode_console(fd, &d);
 	if (!strcmp(mode, "boot")) return mode_boot(fd, &d);
 	if (!strcmp(mode, "sniff")) return mode_sniff(fd, &d);
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
 usage:
-	fprintf(stderr, "usage : dvf99 [-d TTY] [-l JOURNAL] [-U] console|boot|sniff|init\n"
+	fprintf(stderr, "usage : dvf99 [-d TTY] [-l JOURNAL] [-e NVRAM] [-U] console|boot|sniff|init\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;
 }

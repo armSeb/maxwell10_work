@@ -126,6 +126,30 @@ CMBS : paquet 0, événement 125 `CMBS_EV_DSR_TARGET_UP`, sans paramètre. En-t�
 - `HELLO_RPLY` : deux u16 (version, build) puis un octet ;
 - `cmbs_api_Init` = Hello puis attente de la réponse (10 s) ; `cmbs_dsr_sys_Start` = événement 25 sans paramètre.
 
+## Premier échange réel (pmOS, 2026-11-04)
+
+```
+→ HELLO (0xFF01, vide)
+← HELLO_RPLY : 64 03 1a 00 00        version 03.64, build 0x1a
+→ SYS_START (25)
+← SYS_START_RES (26) : IE RESPONSE (22) = 0
+← PARAM_AREA_GET (76) : IE PARAMETER_AREA (26) zone 0 (EEPROM), offset 0, 0xF0 octets
+```
+
+Format d'un IE : `u16 type, u16 longueur, valeur`. Après SYS_START, la DVF99 **lit son EEPROM chez l'hôte** :
+c'est le rôle de `/data/cmbs/nvram.bin` (appairages, identité). L'hôte répond par PARAM_AREA_GET_RES (77) :
+IE PARAMETER_AREA (zone, offset u32, longueur u16, données) + IE RESPONSE ; les écritures arrivent en
+PARAM_AREA_SET (78), réponse 79 avec IE RESPONSE (relevé dans `app_OnParamAreaGet/Set` de `cmbs_host`).
+
+Récupérer l'EEPROM depuis pmOS, sans Android :
+
+```sh
+sudo mkdir -p /mnt/android-data && sudo mount -o ro /dev/mmcblk2p4 /mnt/android-data
+sudo cp /mnt/android-data/cmbs/nvram.bin ~/nvram.orig.bin     # à sauvegarder hors de la tablette
+cp ~/nvram.orig.bin ~/nvram.bin                                # copie de travail pour dvf99 -e
+sudo umount /mnt/android-data
+```
+
 ## Sous Linux mainline : premiers pas
 
 État : la DVF99 est **hors reset** (gpio-hog sur GPIO4_IO22, pour l'horloge du switch) et reste dans
@@ -139,7 +163,7 @@ L'UART3 est activé dans le DT (`/dev/ttymxc2`, pads EIM_D24 TX / EIM_D25 RX, co
 |---|---|
 | `dvf99 -l dvf99.log console` | console du U-Boot du module, ligne à ligne ; refuse `saveenv`, `upgrade`, `erase`, `sf`, `cp.b`… (sauf `-U`) |
 | `dvf99 -l dvf99.log boot` | `\r` puis `run bootm` ; attend 20 s une trame CMBS (synchro `DA DA DA DA`) |
-| `dvf99 -l dvf99.log init` | `run bootm` si besoin, puis **Hello** (commande de lien `0xFF01`, sans configuration TDM), **SYS_START** (25) et **FW_VERSION_GET** (23) ; affiche les réponses |
+| `dvf99 -l dvf99.log -e nvram.bin init` | `run bootm` si besoin, **Hello** (`0xFF01`) puis **SYS_START** (25) ; avec `-e`, répond aux lectures/écritures de l'EEPROM émulée (PARAM_AREA_GET/SET) à partir d'une **copie** de `/data/cmbs/nvram.bin` |
 | `dvf99 -l dvf99.log sniff` | décode en continu : texte, puis trames CMBS (n° de paquet, événement, IE en hexa) |
 | `dvf99 -f capture.bin sniff` | décode un fichier brut (capture UART) |
 
