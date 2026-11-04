@@ -1045,6 +1045,7 @@ static volatile sig_atomic_t stop_req;
 static int tweeter_pct = 50;		/* -X : niveau du tweeter en % (écrêtage des aigus à 100) */
 static int audio_on;			/* -A */
 static int audio_nomic;			/* -M : pas de capture (micro du combiné) */
+static int audio_probe = -1;		/* -D N : diagnostic, haut-parleur sur la paire de voies N seule */
 
 static int aud_card(void)
 {
@@ -1207,6 +1208,10 @@ static void *aud_play(void *arg)
 			else { f[0] = h[2 * i]; f[1] = h[2 * i + 1]; }
 			f[2] = s[2 * i] * tweeter_pct / 100; f[3] = s[2 * i + 1] * tweeter_pct / 100;
 			f[4] = s[2 * i]; f[5] = s[2 * i + 1];
+			if (audio_probe >= 0) {
+				memset(f, 0, AUD_CH * 2);
+				f[2 * audio_probe] = s[2 * i]; f[2 * audio_probe + 1] = s[2 * i + 1];
+			}
 		}
 		if (aud_xfer(fd, 0, buf, &xruns) < 0) { close(fd); fd = -1; sleep(1); continue; }
 		periods++;
@@ -1456,7 +1461,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:M")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -1481,6 +1486,7 @@ int main(int argc, char **argv)
 		case 'A': audio_on = 1; break;
 		case 'X': tweeter_pct = atoi(optarg); break;
 		case 'M': audio_nomic = 1; break;
+		case 'D': audio_probe = atoi(optarg) % 3; break;
 		default: goto usage;
 		}
 	}
