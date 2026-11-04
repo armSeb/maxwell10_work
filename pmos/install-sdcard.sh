@@ -1,37 +1,44 @@
 #!/bin/sh
 # Installe postmarketOS (Nura) pour le Gigaset Maxwell 10 sur une carte microSD,
-# de façon reproductible, puis vérifie la partition de boot.
+# de façon reproductible.
 #
-#   pmos/install-sdcard.sh /dev/sdX            # UI par défaut : buffyboard
-#   UI=cage pmos/install-sdcard.sh /dev/sdX
+#   pmos/install-sdcard.sh /dev/sdX            # UI par défaut : phosh
+#   UI=xfce4 pmos/install-sdcard.sh /dev/sdX   # ou buffyboard, cage, console…
 #   APORTS=~/src/pmaports pmos/install-sdcard.sh /dev/sdX   # clone pmaports ailleurs
 #
 # Prérequis : pmbootstrap installé, `pmbootstrap init` lancé au moins une fois
-# (n'importe quel appareil : il sert à créer la config et le clone pmaports).
+# (n'importe quel appareil : il sert à créer la config et le clone pmaports) ;
+# sgdisk (paquet gdisk), sfdisk/findmnt (util-linux).
+#
+# pmbootstrap crée une table GPT avec p1 typée ESP, illisible par U-Boot 2009.08.
+# On ne le laisse donc pas écrire la carte : il produit une IMAGE, que le script
+# convertit en MBR (p1 en FAT32 LBA 0x0C), vérifie, puis seulement écrit sur la
+# carte. La carte reçoit directement le bon format.
 #
 # Étapes :
-#   1. vérifie la carte (disque amovible, pas monté, < 64 Go) et demande confirmation ;
+#   1. vérifie la carte (disque entier, pas monté, < 64 Go) et demande confirmation ;
 #   2. met à jour le clone pmaports (origin/main doit exister) ;
 #   3. copie les paquets du dépôt dans pmaports/device/testing (sync.sh) et calcule les sommes ;
 #   4. sélectionne l'appareil et l'UI dans la config pmbootstrap ;
-#   5. pmbootstrap install --sdcard (EFFACE la carte), puis table convertie en
-#      MBR avec p1 typée 0x0C (seul format lu par U-Boot 2009.08) ;
-#   6. vérifie que p1 contient go.bin et initramfs ;
-#   7. affiche l'environnement U-Boot à saisir.
+#   5. pmbootstrap install → image disque ;
+#   6. image : GPT → MBR, p1 0x0C active, p2 0x83 ;
+#   7. image : vérifie que p1 contient go.bin et initramfs ;
+#   8. écrit l'image sur la carte et revérifie la table ;
+#   9. affiche l'environnement U-Boot à saisir.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 dev=${1:-}
-ui=${UI:-buffyboard}
+ui=${UI:-phosh}
 device=gigaset-maxwell10
 
 die() { echo "ERREUR : $*" >&2; exit 1; }
 step() { printf '\n==> %s\n' "$*"; }
 
-[ -n "$dev" ] || die "usage : $0 /dev/sdX   (variable UI=… facultative, défaut buffyboard)"
+[ -n "$dev" ] || die "usage : $0 /dev/sdX   (variable UI=… facultative, défaut phosh)"
 command -v pmbootstrap >/dev/null || die "pmbootstrap introuvable"
-for t in lsblk blkid sfdisk; do
-	command -v "$t" >/dev/null || die "$t introuvable (util-linux)"
+for t in lsblk blkid sfdisk findmnt sgdisk dd; do
+	command -v "$t" >/dev/null || die "$t introuvable (util-linux, gdisk, coreutils)"
 done
 
 # --- 1. la carte -----------------------------------------------------------
@@ -71,43 +78,42 @@ step "Configuration : device=$device, ui=$ui"
 pmbootstrap config device "$device"
 pmbootstrap config ui "$ui"
 
-# --- 5. installation --------------------------------------------------------
-step "Installation (compilation du noyau au premier passage : long)"
-pmbootstrap install --sdcard="$dev"
+# --- 5. installation dans une image --------------------------------------
+step "Installation dans une image (compilation du noyau au premier passage : long)"
+pmbootstrap install
+img="$work/chroot_native/home/pmos/rootfs/$device.img"
+[ -f "$img" ] || die "image introuvable : $img"
+img_size=$(stat -c %s "$img")
+echo "  image : $img ($((img_size / 1024 / 1024)) Mio)"
+[ "$img_size" -le "$size" ] || die "l'image ($img_size o) ne tient pas sur la carte ($size o) : carte plus grande, ou UI plus légère"
 
-# --- 5b. table de partitions lisible par U-Boot 2009.08 ----------------------
-# pmbootstrap peut créer une table GPT et/ou typer p1 en partition système EFI
-# (0xEF). U-Boot 2009.08 ne lit que le MBR « DOS » ; et udisks ignore les ESP,
-# d'où une p1 qui ne se monte pas toute seule sur le PC. On convertit en MBR
-# et on type p1 en FAT32 LBA (0x0C) : positions et contenu des partitions
-# inchangés, labels et UUID des systèmes de fichiers aussi.
-step "Table de partitions pour U-Boot (MBR, p1 en 0x0C)"
-sync
-pttype=$(sudo blkid -p -o value -s PTTYPE "$dev" || true)
-echo "  table actuelle : ${pttype:-inconnue}"
+# --- 6. table de partitions lisible par U-Boot 2009.08 ----------------------
+# GPT → MBR (positions et contenu des partitions inchangés, labels et UUID des
+# systèmes de fichiers aussi), p1 en FAT32 LBA (0x0C) active, p2 en Linux.
+# Sans cela : U-Boot ne voit pas p1, et udisks ignore p1 (ESP) sur le PC.
+step "Image : table MBR, p1 en 0x0C"
+pttype=$(sudo blkid -p -o value -s PTTYPE "$img" || true)
+echo "  table produite par pmbootstrap : ${pttype:-inconnue}"
 if [ "$pttype" = gpt ]; then
-	command -v sgdisk >/dev/null || die "table GPT : installer sgdisk (paquet gdisk) pour la convertir en MBR"
-	sudo sgdisk --gpttombr=1:2 "$dev"
+	sudo sgdisk --gpttombr=1:2 "$img" >/dev/null
 fi
-pttype=$(sudo blkid -p -o value -s PTTYPE "$dev" || true)
+pttype=$(sudo blkid -p -o value -s PTTYPE "$img" || true)
 [ "$pttype" = dos ] || die "table « $pttype » après conversion, MBR attendu"
-sudo sfdisk --part-type "$dev" 1 c
-sudo sfdisk --part-type "$dev" 2 83
-sudo sfdisk --activate "$dev" 1
-sudo sfdisk -l "$dev"
+sudo sfdisk -q --part-type "$img" 1 c
+sudo sfdisk -q --part-type "$img" 2 83
+sudo sfdisk -q --activate "$img" 1
+sudo sfdisk -l "$img" | sed -n '/^Device/,$p'
 
-# --- 6. vérification de /boot ----------------------------------------------
-step "Vérification de la partition de boot"
-sync
-case "$dev" in
-	*[0-9]) p1="${dev}p1" ;;	# /dev/mmcblk0 → /dev/mmcblk0p1
-	*) p1="${dev}1" ;;
-esac
-if command -v partprobe >/dev/null; then sudo partprobe "$dev" 2>/dev/null || true; fi
-sleep 2
-[ -b "$p1" ] || die "$p1 introuvable après l'installation"
+# --- 7. vérification de /boot dans l'image ---------------------------------
+step "Image : contenu de la partition de boot"
+# montage par décalage (pas de losetup -P : pas besoin d'udev pour les nœuds pN)
+p1_start=$(sudo sfdisk -d "$img" | sed -n 's/^[^ ]*1 : start= *\([0-9]*\),.*/\1/p')
+[ -n "$p1_start" ] || die "début de p1 introuvable dans l'image"
 mnt=$(mktemp -d)
-sudo mount -o ro "$p1" "$mnt"
+cleanup() { sudo umount "$mnt" 2>/dev/null || true; rmdir "$mnt" 2>/dev/null || true; }
+trap cleanup EXIT
+sudo mount -o ro,loop,offset=$((p1_start * 512)) "$img" "$mnt"
+echo "  p1 : $(findmnt -no FSTYPE "$mnt"), commence au secteur $p1_start"
 ok=1
 for f in go.bin initramfs; do
 	if [ -s "$mnt/$f" ]; then
@@ -116,12 +122,23 @@ for f in go.bin initramfs; do
 		echo "  $f MANQUANT"; ok=0
 	fi
 done
-echo "  FS de p1 : $(lsblk -no FSTYPE,LABEL "$p1")"
-sudo umount "$mnt"
-rmdir "$mnt"
-[ "$ok" = 1 ] || die "p1 ne contient pas go.bin et initramfs : U-Boot ne pourra pas démarrer"
+cleanup
+trap - EXIT
+[ "$ok" = 1 ] || die "p1 ne contient pas go.bin et initramfs : U-Boot ne pourra pas démarrer (carte non écrite)"
 
-# --- 7. U-Boot --------------------------------------------------------------
+# --- 8. écriture sur la carte -----------------------------------------------
+step "Écriture sur $dev"
+if lsblk -no MOUNTPOINT "$dev" | grep -q .; then
+	die "une partition de $dev a été montée entre-temps, la démonter puis relancer"
+fi
+sudo dd if="$img" of="$dev" bs=4M conv=fsync status=progress
+sync
+if command -v partprobe >/dev/null; then sudo partprobe "$dev" 2>/dev/null || true; fi
+[ "$(sudo blkid -p -o value -s PTTYPE "$dev")" = dos ] || die "la carte ne lit pas un MBR après écriture"
+sudo sfdisk -l "$dev" | sed -n '/^Device/,$p'
+echo "  La partition racine sera agrandie à toute la carte au premier démarrage."
+
+# --- 9. U-Boot --------------------------------------------------------------
 step "Carte prête"
 cat <<'EOF'
 Dans la console U-Boot (UART2), une seule fois :

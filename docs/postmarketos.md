@@ -60,30 +60,29 @@ saveenv
 - Sans carte (ou sans `go.bin`/`initramfs`) : `run android`, boot Android d'origine.
 - Sans initramfs (image de dump, tests de noyau) : `go 0x12000000` seul, comme avant.
 
-## Carte microSD (2 Go)
+## Carte microSD
 
 U-Boot 2009.08 ne lit qu'une table **MBR** avec p1 d'un type FAT. pmbootstrap (constaté avec la v3.12.1)
-crée une table **GPT** avec p1 typée partition système **EFI** : `install-sdcard.sh` convertit ensuite en MBR
-(positions et contenu inchangés) et type p1 en `0x0C` (FAT32 LBA). Résultat :
+crée une table **GPT** avec p1 typée partition système **EFI**. `install-sdcard.sh` fait donc produire une
+image, la convertit en MBR (positions et contenu inchangés) avec p1 en `0x0C` (FAT32 LBA), puis l'écrit
+sur la carte. Résultat :
 
 | Partition | Label | FS | Taille | Contenu |
 |---|---|---|---|---|
 | p1 | `pmOS_boot` | FAT32 | 256 Mo | `go.bin`, `initramfs`, `vmlinuz`, `dtbs/` |
-| p2 | `pmOS_root` | ext4 | reste (~1,7 Go) | rootfs |
+| p2 | `pmOS_root` | ext4 | reste de la carte (agrandie au 1er démarrage) | rootfs |
 
-Interface conseillée :
+Interface (`UI=…` pour le script, défaut `phosh`) :
 
-- **`buffyboard`** pour le premier démarrage : console texte avec clavier tactile à l'écran.
-  Léger, et suffisant pour valider écran, tactile, réseau et Wi-Fi. Tout reste accessible par
-  l'UART et le SSH même si l'écran ou le tactile ne marchent pas encore.
-- **`cage`** ensuite, pour le dashboard : compositeur Wayland kiosque qui affiche une seule
-  application en plein écran. Choisir un navigateur léger : le Cortex-A9 et le GC2000 (etnaviv)
-  peinent avec Firefox et un dashboard Home Assistant chargé.
-- Phosh, Plasma Mobile, Sxmo : trop lourds pour 2 Go de carte, et peu utiles ici.
+| UI | Pour | Contre |
+|---|---|---|
+| **`phosh`** (défaut) | interface tactile la plus aboutie de pmOS (GNOME mobile), clavier virtuel squeekboard, applis GNOME adaptatives, s'utilise au doigt sur 10" | la plus lourde des trois sur Cortex-A9 + GC2000 : fluide sans plus ; ~2 Go installée, carte de 8 Go ou plus |
+| `xfce4` | bureau classique, léger, très configurable ; parfait avec clavier et souris sur les 2 ports USB | pensé pour la souris : petits éléments, pas de clavier virtuel par défaut |
+| `cage` | kiosque : une seule appli (navigateur) en plein écran, le plus léger pour le dashboard Home Assistant | rien d'autre que cette appli |
+| `buffyboard` | console + clavier tactile, pour le débogage | clavier invisible sur cet appareil (non résolu) |
 
-2 Go suffisent pour l'interface `console` (quelques centaines de Mo) ou un kiosque léger
-(cage + navigateur, pour le dashboard Home Assistant). Phosh ou Plasma Mobile ne tiendront pas :
-prévoir une carte plus grande pour une interface complète.
+Affichage par KMS (imx-drm) et rendu GPU par etnaviv (Mesa) ; carte SDHC de 32 Go maximum
+(U-Boot 2009.08 ne gère probablement pas le SDXC).
 
 ## Construire et installer
 
@@ -119,7 +118,7 @@ sauf mention contraire.
 | UART2 console | ✅ testé (image de dump) | |
 | eMMC (usdhc3) | ✅ testé (image de dump) | lecture seule par convention |
 | microSD (usdhc4) | ✅ | `mmcblk3` sous mainline ; boot et rootfs pmOS |
-| Écran LVDS 1280×800 | ✅ | écran de démarrage affiché ; clavier buffyboard invisible (en cours) |
+| Écran LVDS 1280×800 | ✅ | console et écran de démarrage ; clavier buffyboard invisible (abandonné) |
 | Rétroéclairage | 🧪 | PWM1, 50 µs |
 | Tactile FT5x06 | ✅ | `edt_ft5x06` sur i2c-2 @ 0x38, saisie buffyboard OK |
 | Bouton power | 🧪 | GPIO4_IO10 |

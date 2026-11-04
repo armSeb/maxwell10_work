@@ -23,13 +23,18 @@ Modifier le DT ou goshim **à leur place d'origine**, puis relancer `sync.sh`.
 
 ```sh
 pmbootstrap init                         # une fois, n'importe quel appareil : crée config + clone pmaports
-pmos/install-sdcard.sh /dev/sdX          # UI buffyboard par défaut ; UI=cage pour un kiosque
+pmos/install-sdcard.sh /dev/sdX          # UI phosh par défaut ; UI=xfce4, cage, buffyboard…
 ```
 
 [install-sdcard.sh](install-sdcard.sh) vérifie la carte (disque entier, non monté, < 64 Go,
 confirmation en retapant le chemin), met à jour pmaports, copie les paquets, calcule les sommes,
-règle `device` et `ui`, lance `pmbootstrap install --sdcard`, contrôle que p1 contient
-`go.bin` et `initramfs`, puis affiche l'environnement U-Boot à saisir.
+règle `device` et `ui`, puis fait construire par pmbootstrap une **image** (et non la carte
+directement). Il convertit cette image en MBR avec p1 en FAT32 LBA (`0x0C`), contrôle que p1
+contient `go.bin` et `initramfs`, et seulement alors écrit l'image sur la carte. La carte reçoit
+donc d'emblée une table lisible par U-Boot 2009.08 ; la racine est agrandie au premier démarrage.
+
+La méthode « à la main » ci-dessous écrit la carte en **GPT** : il faut alors la convertir
+ensuite (voir [docs/postmarketos.md](../docs/postmarketos.md#si-ça-ne-démarre-pas)).
 
 ### À la main
 
