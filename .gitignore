@@ -18,3 +18,4 @@ __pycache__/
 tools/fiemap2uboot/fiemap2uboot
 tools/mdio-scan/mdio-scan
 tools/dvf99/dvf99
+tools/ssireg/ssireg
