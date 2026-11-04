@@ -1,0 +1,65 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] thermal: imx: add an active trip point for fans
+
+The i.MX thermal zone is not described in the device tree, so a gpio-fan
+cannot be attached to it with cooling-maps. Add an active trip point
+30 degrees C below the maximum temperature of the speed grade, with
+10 degrees C of hysteresis, and bind every non-cpufreq cooling device to
+it. The passive trip still throttles the CPU near the limit.
+
+On the Gigaset Maxwell 10 (commercial grade, 95 degrees C): the fan starts
+at 65 degrees C and stops at 55 degrees C.
+---
+--- a/drivers/thermal/imx_thermal.c	2026-11-04 13:22:54.028130749 +0100
++++ b/drivers/thermal/imx_thermal.c	2026-11-04 13:22:54.054827980 +0100
+@@ -72,10 +72,14 @@
+ #define IMX7_TEMPSENSE1_TEMP_VALUE_SHIFT	0
+ #define IMX7_TEMPSENSE1_TEMP_VALUE_MASK		0x1ff
+ 
+-/* The driver supports 1 passive trip point and 1 critical trip point */
++/*
++ * The driver supports 1 passive trip point, 1 critical trip point and 1 active
++ * trip point for fans or other non-CPU cooling devices.
++ */
+ enum imx_thermal_trip {
+ 	IMX_TRIP_PASSIVE,
+ 	IMX_TRIP_CRITICAL,
++	IMX_TRIP_ACTIVE,
+ };
+ 
+ #define IMX_POLLING_DELAY		2000 /* millisecond */
+@@ -118,6 +122,8 @@
+ 	[IMX_TRIP_PASSIVE]  = { .type = THERMAL_TRIP_PASSIVE,
+ 				.flags = THERMAL_TRIP_FLAG_RW_TEMP },
+ 	[IMX_TRIP_CRITICAL] = { .type = THERMAL_TRIP_CRITICAL },
++	[IMX_TRIP_ACTIVE]   = { .type = THERMAL_TRIP_ACTIVE,
++				.hysteresis = 10000 },
+ };
+ 
+ static struct thermal_soc_data thermal_imx6q_data = {
+@@ -358,7 +364,12 @@
+ 			    struct thermal_cooling_device *cdev,
+ 			    struct cooling_spec *c)
+ {
+-	return trip->type == THERMAL_TRIP_PASSIVE;
++	if (trip->type == THERMAL_TRIP_PASSIVE)
++		return true;
++
++	/* the active trip drives fans, not the CPU frequency */
++	return trip->type == THERMAL_TRIP_ACTIVE &&
++	       strncmp(cdev->type, "cpufreq-", 8);
+ }
+ 
+ static struct thermal_zone_device_ops imx_tz_ops = {
+@@ -445,9 +456,11 @@
+ 	/*
+ 	 * Set the critical trip point at 5 °C under max
+ 	 * Set the passive trip point at 10 °C under max (changeable via sysfs)
++	 * Set the active trip point at 30 °C under max, 10 °C hysteresis
+ 	 */
+ 	trips[IMX_TRIP_PASSIVE].temperature = data->temp_max - (1000 * 10);
+ 	trips[IMX_TRIP_CRITICAL].temperature = data->temp_max - (1000 * 5);
++	trips[IMX_TRIP_ACTIVE].temperature = data->temp_max - (1000 * 30);
+ }
+ 
+ static int imx_init_from_tempmon_data(struct platform_device *pdev)

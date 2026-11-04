@@ -1,9 +1,0 @@
-#!/bin/sh
-# Active le service du ventilateur, sous systemd ou OpenRC.
-if command -v systemctl >/dev/null 2>&1; then
-	systemctl enable maxwell-fan.service >/dev/null 2>&1 || true
-fi
-if command -v rc-update >/dev/null 2>&1; then
-	rc-update add maxwell-fan default >/dev/null 2>&1 || true
-fi
-exit 0

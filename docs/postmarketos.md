@@ -130,7 +130,7 @@ sauf mention contraire.
 | USB hôte (hub USB2512) | 🧪 | |
 | Wi-Fi AR6003 (usdhc1) | ✅ | `wlan0` ; fw 3.2.0.144 api 3 avec `linux-firmware-ath6k` (fichiers `.zst`, d'où `CONFIG_FW_LOADER_COMPRESS_ZSTD`). Board file générique `bdata.SD31` : reprendre le `bdata.bin` d'Android pour la calibration (non publié) |
 | NOR SPI | 🧪 | partitions en lecture seule |
-| Ventilateur | ✅ | `gpio-fan` piloté par le service `maxwell-fan` (paquet device) : marche ≥ 65 °C, arrêt ≤ 55 °C, en marche si le service s'arrête. Seuils dans `/etc/default/maxwell-fan` |
+| Ventilateur | ✅ | `gpio-fan` géré par le noyau : zone `imx_thermal_zone`, point actif à Tmax − 30 °C (65 °C en gamme commerciale), arrêt 10 °C plus bas — patch `0002-thermal-imx-add-an-active-trip-for-fans` |
 | Watchdog | 🧪 | servi par le noyau |
 | GPU (etnaviv), cpufreq | ✅ | accélération Phosh OK (GC2000), fréquence CPU variable |
 | Capteur de lumière ISL29023 | ⏳ | bus à identifier |
@@ -148,7 +148,7 @@ Intégrées aux paquets :
 | noyau | gouverneur **schedutil** par défaut, **HZ=250**, **préemption complète** | réactivité de l'interface |
 | noyau | zram en **zstd** (et lz4) | swap compressé en RAM utilisable (2 Go de RAM) |
 | paquet device | **BFQ** sur `mmcblk*` (règle udev) | l'interface reste fluide quand la carte SD travaille |
-| paquet device | ventilateur régulé (`maxwell-fan`) | silence au repos |
+| noyau | ventilateur sur la zone thermique (point actif, patch 0002) | silence au repos, sans service en espace utilisateur |
 | deviceinfo | `deviceinfo_gpu_accelerated="true"` | etnaviv fonctionne : pmOS propose les UI accélérées |
 
 À faire soi-même, selon l'usage :

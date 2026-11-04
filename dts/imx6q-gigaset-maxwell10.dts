@@ -105,10 +105,10 @@
 	};
 
 	/*
-	 * Ventilateur (gpio-fan vendeur), tout ou rien. Piloté en espace utilisateur
-	 * selon la température (service maxwell-fan du paquet device) : la zone
-	 * thermique d'imx_thermal n'est pas décrite en DT, on ne peut pas y lier
-	 * le ventilateur comme dispositif de refroidissement.
+	 * Ventilateur (gpio-fan vendeur), tout ou rien. Dispositif de refroidissement
+	 * (#cooling-cells) lié automatiquement à la zone imx_thermal_zone : point
+	 * « actif » à Tmax - 30 °C avec 10 °C d'hystérésis (patch noyau 0002), soit
+	 * 65 °C / 55 °C pour la gamme commerciale, et point passif près de la limite.
 	 */
 	fan: fan {
 		compatible = "gpio-fan";
