@@ -1418,6 +1418,29 @@ static unsigned parse_hex(const char *h, uint8_t *out_, unsigned max)
 	return n;
 }
 
+/* dvf99 register : ouvre l'inscription des combinés (CORD_OPENREG, IE 24 =
+ * durée en s, comme cmbs_dsr_cord_OpenRegistration) et attend HS_REGISTERED ;
+ * les appairages sont écrits par la base dans l'EEPROM émulée (-e). */
+static int mode_register(int fd, struct decoder *d)
+{
+	if (do_init(fd, d)) return 1;
+	uint8_t b[16], v[4];
+	put32(v, 120);
+	unsigned n = ie_add(b, 0, 24, v, 4);
+	out("5) inscription ouverte 120 s : mettre le combiné en mode inscription\n");
+	request(fd, d, 9, b, n, "CORD_OPENREG");
+	d->want = 7; d->want_seen = 0;		/* CMBS_EV_DSR_HS_REGISTERED */
+	double end = now() + 125.0;
+	while (now() < end && !d->want_seen) read_for(fd, d, 1.0);
+	d->want = 0;
+	out(d->want_seen ? "   combiné inscrit\n" : "   aucun combiné inscrit\n");
+	read_for(fd, d, 3.0);			/* écritures EEPROM de la base */
+	n = 0;
+	request(fd, d, 11, b, 0, "CORD_CLOSEREG");
+	read_for(fd, d, 2.0);
+	return d->want_seen ? 0 : 5;
+}
+
 /* dvf99 param N [HEX] … : lit (et écrit) des paramètres CMBS */
 static int mode_param(int fd, struct decoder *d, int argc, char **argv)
 {
@@ -1516,6 +1539,7 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "boot")) return mode_boot(fd, &d);
 	if (!strcmp(mode, "sniff")) return mode_sniff(fd, &d);
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
+	if (!strcmp(mode, "register")) return mode_register(fd, &d);
 	if (!strcmp(mode, "reset")) { reset_first = 1; return mode_init(fd, &d); }
 	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel, src);
 	if (!strcmp(mode, "param")) return mode_param(fd, &d, argc - optind - 1, argv + optind + 1);
@@ -1532,6 +1556,7 @@ usage:
 			"          (service : touche verte du combiné = décroché automatique, -N pour non)\n"
 			"        dvf99 [-e NVRAM] param N [=HEX] [N [=HEX]…]\n"
 			"          -A : moteur audio (tubes /run/dvf99/{speaker,handset,mic}), -X : tweeter en %%\n"
+			"        dvf99 -e NVRAM register  (inscription d'un combiné, 120 s)\n"
 			"        dvf99 [-e NVRAM] reset   (SYS_RESET de la pile puis init ; -R : idem avant tout mode)\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;
