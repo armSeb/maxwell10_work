@@ -19,8 +19,16 @@
  *                                         -a : une seule sortie (défaut : les 4) ;
  *                                         -s : démarre aussi le canal média (TDM)
  *                                         -S N : source des amplis (E_CMBS_AFE_CHANNEL,
- *                                         15 = DAC0 par défaut ; 19 SINGIN, 20/21
+ *                                         17 = DAC0 par défaut ; 21 SINGIN, 22/23
  *                                         DIFFIN0/1 : liaison micro → ampli, sans tonalité)
+ *   dvf99 [-e NVRAM] [-S SRC] [-g GAIN] [-t N|-1] [-w S] [-k] speaker
+ *                                         séquence haut-parleur d'Android : woofer
+ *                                         AMP_OUT2/3 en pont ← DAC0, slots 0x0F00 WB,
+ *                                         tweeter slots 0x00F0, ampli via GPIO D10 ;
+ *                                         -t -1 : pas de tonalité (son TDM) ;
+ *                                         -g 32..36 : 0 à −24 dB (défaut 34 = −12) ;
+ *                                         -w : durée ; -k : laisse le chemin ouvert ;
+ *                                         -S 22 : micro (DIFFIN0) → HP, sans TDM
  *
  * Sous Android, CMBSServer pulse le reset de la DVF99, envoie « run bootm » à son
  * U-Boot, puis parle CMBS. Sous mainline, personne ne le fait : la DVF99 reste
@@ -138,6 +146,12 @@ static const char *ie_name(unsigned t)
 	case 84: return "AFE_ENDPOINT_GAIN";
 	case 88: return "AFE_RESOURCE_TYPE";
 	case 89: return "AFE_INSTANCE_NUM";
+	case 91: return "GPIO_ID";
+	case 92: return "GPIO_MODE";
+	case 93: return "GPIO_VALUE";
+	case 94: return "GPIO_PULL_TYPE";
+	case 95: return "GPIO_PULL_ENA";
+	case 96: return "GPIO_ENA";
 	default: return NULL;
 	}
 }
@@ -202,6 +216,14 @@ static const char *event_name(unsigned id)
 	case 248: return "CMBS_EV_DSR_AFE_CHANNEL_ALLOCATE_RES";
 	case 249: return "CMBS_EV_DSR_AFE_CHANNEL_DEALLOCATE";
 	case 250: return "CMBS_EV_DSR_AFE_CHANNEL_DEALLOCATE_RES";
+	case 254: return "CMBS_EV_DSR_GPIO_ENABLE";
+	case 255: return "CMBS_EV_DSR_GPIO_ENABLE_RES";
+	case 256: return "CMBS_EV_DSR_GPIO_DISABLE";
+	case 257: return "CMBS_EV_DSR_GPIO_DISABLE_RES";
+	case 258: return "CMBS_EV_DSR_GPIO_CONFIG_SET";
+	case 259: return "CMBS_EV_DSR_GPIO_CONFIG_SET_RES";
+	case 260: return "CMBS_EV_DSR_GPIO_CONFIG_GET";
+	case 261: return "CMBS_EV_DSR_GPIO_CONFIG_GET_RES";
 	case 274: return "(hors énumération 03.64 : données du combiné, firmware Gigaset)";
 	case 7:   return "CMBS_EV_DSR_HS_REGISTERED";
 	case 8:   return "CMBS_EV_DSR_HS_IN_RANGE";
@@ -567,8 +589,37 @@ static int mode_init(int fd, struct decoder *d)
 #define IE_AFE_ENDPOINT_GAIN		84
 #define IE_AFE_RESOURCE_TYPE		88
 #define IE_AFE_INSTANCE_NUM		89
-#define AFE_AMPOUT_IN_DAC0		15
-#define AFE_AMP_OUT0			23
+#define EV_GPIO_ENABLE			254
+#define EV_GPIO_DISABLE			256
+#define EV_GPIO_CONFIG_SET		258
+#define IE_GPIO_ID			91
+#define IE_GPIO_MODE			92
+#define IE_GPIO_VALUE			93
+#define IE_GPIO_PULL_TYPE		94
+#define IE_GPIO_PULL_ENA		95
+
+/* E_CMBS_AFE_CHANNEL tel que le firmware de la Maxwell 10 le numérote (relevé
+ * dans la bibliothèque hôte d'Android). Attention : l'énumération des en-têtes
+ * CMBS 03.64 génériques n'a pas DIGMIC1/2 et est décalée de 2 à partir de 15. */
+#define AFE_ADC_IN_DIFFIN0		9
+#define AFE_AMPOUT_IN_DAC0		17
+#define AFE_AMPOUT_IN_DAC1		18
+#define AFE_AMPOUT_IN_DAC0_INV		19
+#define AFE_AMPOUT_IN_SINGIN		21
+#define AFE_AMPOUT_IN_DIFFIN0		22
+#define AFE_AMPOUT_IN_DIFFIN1		23
+#define AFE_AMPOUT_IN_MUTE		24
+#define AFE_AMP_OUT0			25
+#define AFE_AMP_SINGIN0			29
+#define AFE_AMP_DIFFIN0			31
+#define AFE_AMP_DIFFIN1			32
+#define AFE_MIC0			36
+#define AFE_MIC1			37
+#define AFE_OUT_GAIN_0DB		32	/* puis 33 = −6 dB … 36 = −24 dB */
+
+/* ampli du haut-parleur : GPIO D10 de la DVF99 (banc D = 3) */
+#define SPK_GPIO_BANK			3
+#define SPK_GPIO			10
 
 static unsigned ie_add(uint8_t *b, unsigned at, unsigned type, const uint8_t *v, unsigned n)
 {
@@ -639,14 +690,16 @@ static int mode_tone(int fd, struct decoder *d, int amp, int tone, int start_cha
 		n = ie_add(b, 0, IE_AFE_ENDPOINT, v, 1);
 		request(fd, d, EV_AFE_ENDPOINT_ENABLE, b, n, "AFE_ENDPOINT_ENABLE");
 		/* gain de sortie : CMBS_AFE_OUT_SING_GAIN_0DB (32), le maximum */
-		set_gain(fd, d, AFE_AMP_OUT0 + a, 32);
+		set_gain(fd, d, AFE_AMP_OUT0 + a, AFE_OUT_GAIN_0DB);
 	}
 
 	/* entrée analogique : il faut aussi activer son préampli et la
 	 * polarisation micro, et lui donner du gain */
-	int inamp = src == 19 ? 27 : src == 20 ? 29 : src == 21 ? 30 : -1;	/* AMP_SINGIN0 / DIFFIN0 / DIFFIN1 */
+	int inamp = src == AFE_AMPOUT_IN_SINGIN ? AFE_AMP_SINGIN0 :
+		    src == AFE_AMPOUT_IN_DIFFIN0 ? AFE_AMP_DIFFIN0 :
+		    src == AFE_AMPOUT_IN_DIFFIN1 ? AFE_AMP_DIFFIN1 : -1;
 	if (inamp >= 0) {
-		int mic = src == 21 ? 35 : 34;					/* MIC1 / MIC0 */
+		int mic = src == AFE_AMPOUT_IN_DIFFIN1 ? AFE_MIC1 : AFE_MIC0;
 		out("6b) préampli %d et polarisation micro %d, gain d'entrée +20 dB\n", inamp, mic);
 		v[0] = inamp;
 		n = ie_add(b, 0, IE_AFE_ENDPOINT, v, 1);
@@ -657,7 +710,7 @@ static int mode_tone(int fd, struct decoder *d, int amp, int tone, int start_cha
 		set_gain(fd, d, inamp, 16);					/* CMBS_AFE_IN_GAIN_20DB */
 	}
 
-	if (src < 15 || src > 18) {	/* pas un DAC */
+	if (src < AFE_AMPOUT_IN_DAC0 || src > 20) {	/* pas un DAC */
 		/* liaison analogique directe (entrée → ampli) : pas de canal média ni de
 		 * tonalité, on maintient 10 s pour écouter */
 		out("7) liaison analogique maintenue 10 s : parler dans le micro / écouter\n");
@@ -694,6 +747,155 @@ release:
 	return 0;
 }
 
+static unsigned ie_gpio_id(uint8_t *b, unsigned at)
+{
+	uint8_t v[5];
+	put32(v, SPK_GPIO); v[4] = SPK_GPIO_BANK;	/* ST_GPIO_ID : u32 numéro, u8 banc */
+	return ie_add(b, at, IE_GPIO_ID, v, sizeof v);
+}
+
+static unsigned ie_u8(uint8_t *b, unsigned at, unsigned type, unsigned val)
+{
+	uint8_t v = val;
+	return ie_add(b, at, type, &v, 1);
+}
+
+static int afe_alloc(int fd, struct decoder *d, uint32_t *chan)
+{
+	uint8_t b[16];
+	unsigned n = ie_u8(b, 0, IE_AFE_RESOURCE_TYPE, 0);	/* DAC/ADC */
+	if (request(fd, d, EV_AFE_CHANNEL_ALLOCATE, b, n, "AFE_CHANNEL_ALLOCATE")) return -1;
+	unsigned l;
+	const uint8_t *mc = ie_find(d->wparams, d->wlen, IE_MEDIACHANNEL, &l);
+	*chan = mc && l >= 4 ? le32(mc) : 0;
+	out("   canal 0x%x\n", *chan);
+	return 0;
+}
+
+static void afe_ep(int fd, struct decoder *d, unsigned ev, int ep, const char *what)
+{
+	uint8_t b[16];
+	unsigned n = ie_u8(b, 0, IE_AFE_ENDPOINT, ep);
+	char w[64];
+	snprintf(w, sizeof w, "%s %d", what, ep);
+	request(fd, d, ev, b, n, w);
+}
+
+static void afe_connect(int fd, struct decoder *d, int dst, int src)
+{
+	uint8_t b[16], v[2] = { dst, src };
+	unsigned n = ie_add(b, 0, IE_AFE_ENDPOINT_CONNECT, v, 2);
+	char w[64];
+	snprintf(w, sizeof w, "AFE_ENDPOINT_CONNECT %d ← %d", dst, src);
+	request(fd, d, EV_AFE_ENDPOINT_CONNECT, b, n, w);
+}
+
+/* DEM_CHANNEL_START comme la bibliothèque d'Android : descripteur média (codec
+ * choisi + liste {PCM linéaire WB 5, NB 6}) puis canal + masque de slots TDM */
+static void channel_start(int fd, struct decoder *d, uint32_t chan, uint32_t slots, int wb)
+{
+	uint8_t b[32], desc[4] = { wb ? 5 : 6, 2, 5, 6 };
+	unsigned n = ie_add(b, 0, IE_MEDIADESCRIPTOR, desc, sizeof desc);
+	n = ie_media_channel(b, n, chan, slots);
+	char w[64];
+	snprintf(w, sizeof w, "DEM_CHANNEL_START 0x%x slots 0x%04x", chan, slots);
+	request(fd, d, EV_DEM_CHANNEL_START, b, n, w);
+}
+
+static void spk_amp(int fd, struct decoder *d, int on)
+{
+	uint8_t b[48]; unsigned n;
+	if (on) {
+		n = ie_gpio_id(b, 0);
+		request(fd, d, EV_GPIO_ENABLE, b, n, "GPIO_ENABLE D10");
+	}
+	n = ie_gpio_id(b, 0);
+	n = ie_u8(b, n, IE_GPIO_MODE, 1);		/* sortie */
+	n = ie_u8(b, n, IE_GPIO_PULL_TYPE, 1);
+	n = ie_u8(b, n, IE_GPIO_PULL_ENA, 0);
+	n = ie_u8(b, n, IE_GPIO_VALUE, on);
+	request(fd, d, EV_GPIO_CONFIG_SET, b, n, on ? "GPIO_CONFIG_SET D10 = 1 (ampli HP)" : "GPIO_CONFIG_SET D10 = 0");
+	if (!on) {
+		n = ie_gpio_id(b, 0);
+		request(fd, d, EV_GPIO_DISABLE, b, n, "GPIO_DISABLE D10");
+	}
+}
+
+/* Séquence « haut-parleur » de la bibliothèque hôte d'Android (woofer + tweeter) :
+ * woofer = AMP_OUT2/AMP_OUT3 en pont (DAC0 / DAC0 inversé), slots TDM 8..11 ;
+ * tweeter = second canal, slots 4..7, sans extrémité ; ampli sur GPIO D10.
+ * -S autre que DAC0 : liaison analogique (ex. 22 = DIFFIN0 → micro dans le HP). */
+static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, int hold, int keep)
+{
+	if (do_init(fd, d)) return 1;
+	int dac = src == AFE_AMPOUT_IN_DAC0;
+	int o2 = AFE_AMP_OUT0 + 2, o3 = AFE_AMP_OUT0 + 3;
+	uint32_t woofer, tweeter = 0;
+
+	out("5) canal woofer\n");
+	if (afe_alloc(fd, d, &woofer)) return 4;
+	afe_connect(fd, d, o2, src);
+	afe_connect(fd, d, o3, dac ? AFE_AMPOUT_IN_DAC0_INV : AFE_AMPOUT_IN_MUTE);
+	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, o2, "AFE_ENDPOINT_ENABLE");
+	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, o3, "AFE_ENDPOINT_ENABLE");
+	set_gain(fd, d, o2, gain);
+	set_gain(fd, d, o3, gain);
+
+	int inamp = src == AFE_AMPOUT_IN_SINGIN ? AFE_AMP_SINGIN0 :
+		    src == AFE_AMPOUT_IN_DIFFIN0 ? AFE_AMP_DIFFIN0 :
+		    src == AFE_AMPOUT_IN_DIFFIN1 ? AFE_AMP_DIFFIN1 : -1;
+	if (inamp >= 0) {
+		int mic = src == AFE_AMPOUT_IN_DIFFIN1 ? AFE_MIC1 : AFE_MIC0;
+		out("5b) préampli %d, polarisation micro %d, gain +20 dB\n", inamp, mic);
+		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, inamp, "AFE_ENDPOINT_ENABLE (préampli)");
+		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, mic, "AFE_ENDPOINT_ENABLE (micro)");
+		set_gain(fd, d, inamp, 16);
+	}
+	if (dac) channel_start(fd, d, woofer, 0x0F00, 1);
+
+	if (dac) {
+		out("6) canal tweeter\n");
+		if (!afe_alloc(fd, d, &tweeter))
+			channel_start(fd, d, tweeter, 0x00F0, 1);
+	}
+
+	out("7) ampli du haut-parleur (GPIO D10 de la DVF99)\n");
+	spk_amp(fd, d, 1);
+
+	if (dac && tone >= 0) {
+		uint8_t b[32]; unsigned n;
+		out("8) tonalité %d pendant %d s\n", tone, hold);
+		n = ie_media_channel(b, 0, woofer, 0);
+		n = ie_u8(b, n, IE_TONE, tone);
+		request(fd, d, EV_DEM_TONE_START, b, n, "DEM_TONE_START");
+		read_for(fd, d, hold);
+		n = ie_media_channel(b, 0, woofer, 0);
+		request(fd, d, EV_DEM_TONE_STOP, b, n, "DEM_TONE_STOP");
+	} else {
+		out("8) chemin ouvert pendant %d s%s\n", hold,
+		    dac ? " (TDM : jouer du son sur SSI2 côté i.MX)" : " : parler dans le micro");
+		read_for(fd, d, hold);
+	}
+	if (keep) {
+		out("9) -k : chemin laissé ouvert (Ctrl-C pour quitter, la DVF99 garde l'état)\n");
+		for (;;) if (read_for(fd, d, 3600.0) < 0) return 1;
+	}
+
+	out("9) libération\n");
+	spk_amp(fd, d, 0);
+	afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, o2, "AFE_ENDPOINT_DISABLE");
+	afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, o3, "AFE_ENDPOINT_DISABLE");
+	if (inamp >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, inamp, "AFE_ENDPOINT_DISABLE");
+	uint8_t b[16]; unsigned n;
+	n = ie_media_channel(b, 0, woofer, 0);
+	request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE (woofer)");
+	if (tweeter) {
+		n = ie_media_channel(b, 0, tweeter, 0);
+		request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE (tweeter)");
+	}
+	return 0;
+}
+
 static int mode_sniff(int fd, struct decoder *d)
 {
 	out("Décodage (Ctrl-C pour arrêter)\n");
@@ -716,9 +918,10 @@ static int sniff_file(const char *path, struct decoder *d)
 int main(int argc, char **argv)
 {
 	const char *tty = "/dev/ttymxc2", *file = NULL, *eep = NULL;
-	int amp = -1, tone = 0, start_channel = 0, src = 15;	/* AMPOUT_IN_DAC0 */
+	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
+	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:k")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -730,6 +933,9 @@ int main(int argc, char **argv)
 		case 't': tone = atoi(optarg); break;
 		case 's': start_channel = 1; break;
 		case 'S': src = atoi(optarg); break;
+		case 'g': gain = atoi(optarg); break;
+		case 'w': hold = atoi(optarg); break;
+		case 'k': keep = 1; break;
 		default: goto usage;
 		}
 	}
@@ -758,9 +964,11 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "sniff")) return mode_sniff(fd, &d);
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
 	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel, src);
+	if (!strcmp(mode, "speaker")) return mode_speaker(fd, &d, src, gain, tone, hold, keep);
 usage:
 	fprintf(stderr, "usage : dvf99 [-d TTY] [-l JOURNAL] [-e NVRAM] [-U] console|boot|sniff|init\n"
 			"        dvf99 [-e NVRAM] [-a AMP 0..3] [-t TONALITÉ] [-s] [-S SOURCE] tone\n"
+			"        dvf99 [-e NVRAM] [-S SOURCE] [-g GAIN] [-t TONALITÉ|-1] [-w S] [-k] speaker\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;
 }

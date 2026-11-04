@@ -155,7 +155,7 @@ cp ~/nvram.orig.bin ~/nvram.bin                                # copie de travai
 sudo umount /mnt/android-data
 ```
 
-## Audio local : AFE (relevé dans `cmbs_host`, à valider)
+## Audio local : AFE
 
 La DVF99 a un AFE : DAC/ADC, amplis `AMP_OUT0..3`, entrées micro/ligne. Événements et IE (valeur après
 l'en-tête d'IE `type u16, longueur u16`) :
@@ -163,12 +163,38 @@ l'en-tête d'IE `type u16, longueur u16`) :
 | Requête (réponse = +1) | IE |
 |---|---|
 | `AFE_CHANNEL_ALLOCATE` 247 | `AFE_RESOURCE_TYPE` 88 : u8, 0 = DAC/ADC, 1 = classe D → réponse : `RESPONSE`, `AFE_INSTANCE_NUM` 89, `MEDIACHANNEL` 10 (n° de canal) |
-| `AFE_ENDPOINT_CONNECT` 236 | `AFE_ENDPOINT_CONNECT` 82 : u8 point « entrée » (ex. `AMP_OUT0` = 23), u8 sa source (ex. `AMPOUT_IN_DAC0` = 15) |
+| `AFE_ENDPOINT_CONNECT` 236 | `AFE_ENDPOINT_CONNECT` 82 : u8 point « entrée » (ex. `AMP_OUT2` = 27), u8 sa source (ex. `AMPOUT_IN_DAC0` = 17) — voir l'énumération plus bas |
 | `AFE_ENDPOINT_ENABLE` 238 / `DISABLE` 240 | `AFE_ENDPOINT` 83 : u8 |
 | `AFE_ENDPOINT_GAIN` 242 | `AFE_ENDPOINT_GAIN` 84 : u8 point, s16 pas |
 | `DEM_CHANNEL_START` 61 | `MEDIACHANNEL` 10 : u32 canal, u32 masque de slots TDM, u8 type (0 = IOM) ; `MEDIADESCRIPTOR` 12 : u8 codec, u8 n, n codecs (5 = PCM linéaire WB, 6 = NB) |
 | `DEM_TONE_START` 67 / `STOP` 69 | `MEDIACHANNEL` 10 ; `TONE` 13 : u8 (0 = invitation à numéroter) |
 | `AFE_CHANNEL_DEALLOCATE` 249 | `MEDIACHANNEL` 10 |
+| `GPIO_ENABLE` 254 / `DISABLE` 256 | `GPIO_ID` 91 : u32 numéro, u8 banc (A = 0 … D = 3) |
+| `GPIO_CONFIG_SET` 258 | `GPIO_ID` 91 ; `GPIO_MODE` 92 (1 = sortie) ; `GPIO_PULL_TYPE` 94 ; `GPIO_PULL_ENA` 95 ; `GPIO_VALUE` 93 |
+
+### Énumération `E_CMBS_AFE_CHANNEL` du firmware de la Maxwell 10
+
+⚠️ Les en-têtes CMBS 03.64 génériques (et les informations de débogage de `cmbs_host`) n'ont **pas**
+`ADC_IN_DIGMIC1/2` : leur numérotation est **décalée de 2 à partir de 15**. Celle de la bibliothèque hôte
+d'Android (chaînes de `app_GetAFEEndpointString`), qui fait foi pour ce firmware :
+
+| Valeurs | Points |
+|---|---|
+| 0–2 | `SP_OUT`, `HS_SP_OUT`, `LINE0_OUT` |
+| 3–8 | `MIC_IN`, `HS_MIC_IN`, `LINE1_IN`, `LINE0_IN`, `IN_SINGIN0`, `IN_SINGIN1` |
+| 9–16 | `ADC_IN_DIFFIN0`, `ADC_IN_DIFFIN1`, `SINGIN0_MINUS_SINGIN1`, `VREF_OFFSET`, `MUTE_VREF`, `MUTE_FLOAT`, `ADC_IN_DIGMIC1`, `ADC_IN_DIGMIC2` |
+| 17–24 | sources d'ampli : `DAC0`, `DAC1`, `DAC0_INV`, `DAC1_INV`, `SINGIN`, `DIFFIN0`, `DIFFIN1`, `MUTE` |
+| 25–28 | `AMP_OUT0..3` |
+| 29–32 | préamplis `AMP_SINGIN0/1`, `AMP_DIFFIN0/1` |
+| 33–35 | `ADC0..2` |
+| 36–37 | polarisation `MIC0`, `MIC1` |
+
+Gains (inchangés) : entrées 0..31 ; sorties 32 = 0 dB, 33 = −6, 34 = −12, 35 = −18, 36 = −24 dB.
+
+**Tous nos essais d'avant ce relevé visaient donc les mauvais points** (« AMP_OUT0 » = 23 était en fait
+`AMPOUT_IN_DIFFIN1`, une source), et l'ampli du haut-parleur n'était pas alimenté (GPIO D10, ci-dessous) :
+le silence s'explique.
+
 
 Après SYS_START, la DVF99 relit **toute** son EEPROM par blocs de 0xF0 (plusieurs secondes) ; une requête AFE
 envoyée pendant ce temps est refusée avec le code 5 (`CMBS_RC_ERROR_GENERAL`) : attendre la fin des lectures.
@@ -236,14 +262,33 @@ Conclusions :
 
 - le haut-parleur est un ensemble **woofer + tweeter** : deux canaux, le tweeter probablement sur la
   ressource « classe D » (`AFE_RESOURCE_TYPE` = 1) ;
-- l'ampli du woofer est activé par un **GPIO de la DVF99** (`GPIO_ENABLE` puis `GPIO_CONFIG_SET`), d'où le
-  silence de nos essais ; banque et numéro du GPIO restent à trouver (désassemblage de `CMBSServer`) ;
+- l'ampli du woofer est activé par un **GPIO de la DVF99** (`GPIO_ENABLE` puis `GPIO_CONFIG_SET`) : **D10**
+  (relevé ci-dessous) ;
 - deux sorties AFE (cohérent avec `amp_out0 = amp_out1 = 1`) et deux gains ;
 - au démarrage, `CMBSServer` fixe des `CMBS_PARAM_*` (puissances RF, `RXTUN`, `PREAM_NORM`, `AUXBGPROG_DIRECT`,
   `TEST_MODE`…) et `TDM configuration is: 1` ;
 - un GPIO de la DVF99 est lu en boucle (`GPIO_CONFIG_GET`, ~2 Hz, valeur 0/1) après raccroché.
 
 ⚠️ Ce logcat contient le RFPI de la base : ne pas le publier.
+
+### Séquence exacte (désassemblage de la bibliothèque hôte d'Android)
+
+La bibliothèque décrit chaque « appareil » audio par une table de configuration ; pour le haut-parleur
+(sortie 16 kHz, `wideband = 1`) :
+
+| | Woofer (appareil 0) | Tweeter (appareil 1) |
+|---|---|---|
+| canal | `AFE_CHANNEL_ALLOCATE` ressource 0 → 0xF0 | idem → 0xF2 |
+| liaisons | `AMP_OUT2` (27) ← `DAC0` (17) ; `AMP_OUT3` (28) ← `DAC0_INV` (19) : **pont** | aucune |
+| activation, gains | `ENABLE` 27, 28 ; gain 34 (−12 dB, réglage `amp_out2/3 = 2`) sur 27 et 28 | — |
+| canal média | `DEM_CHANNEL_START` : `MEDIADESCRIPTOR` {5, 2, [5, 6]} puis `MEDIACHANNEL` {0xF0, slots **0x0F00**, 0} | slots **0x00F0** |
+| ampli | `GPIO_ENABLE` {D, 10} ; `GPIO_CONFIG_SET` {D10, mode 1, pull type 1, pull off, valeur **1**} | — |
+
+Masque de slots : `(wideband ? 0xF : 0x3) << n`, avec n = 8 (woofer) ou 4 (tweeter) ; codec 5 (PCM linéaire
+16 kHz) ou 6 (8 kHz). Les autres appareils (combiné filaire, ligne…) utilisent le GPIO D11.
+
+Reproduction sous mainline : `dvf99 -e nvram.bin speaker` (tonalité sur le woofer ; `-t -1` sans tonalité,
+pour le flux TDM ; `-k` laisse le chemin ouvert ; `-S 22` : micro `DIFFIN0` → haut-parleur, sans TDM).
 
 ## Sous Linux mainline : premiers pas
 
