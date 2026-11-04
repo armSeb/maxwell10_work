@@ -58,7 +58,12 @@ Un reset de la DVF99 coupe brièvement le switch : il faut relancer les PHY (`la
 (workaround Gigaset « AFM-307 », présent aussi dans leur driver DSA). Le GPIO de reset de la DVF99
 ne doit donc jamais être tenu à l'état actif.
 Sous mainline, le DT le tient **relâché** par un gpio-hog (pad DISP0_DAT1 muxé en GPIO) ; sans cela le pad restait
-sur sa fonction d'affichage par défaut ; c'est la piste retenue pour le switch non détecté au premier boot (à confirmer).
+sur sa fonction d'affichage par défaut.
+
+Le switch, lui, doit recevoir une **impulsion de reset** (GPIO1_IO09, actif bas) une fois l'horloge de la DVF99
+établie : sorti du reset trop tôt, il reste muet sur le MDIO (tout à `0xffff`, vérifié avec
+[tools/mdio-scan](../tools/mdio-scan/)). Une impulsion de 20 ms à la main le fait répondre (ID `0x1152`).
+Le mv88e6xxx mainline ne pulse le reset qu'après détection : patch dans `pmos/linux-gigaset-maxwell10/`.
 
 ## Partitions eMMC (vendeur)
 

@@ -1,0 +1,40 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] net: dsa: mv88e6xxx: pulse the reset line before detection
+
+On the Gigaset Maxwell 10, the 88E6320 reference clock comes from the DECT
+chip (DVF99). Released from reset before that clock is stable, the switch
+stays mute on MDIO and single-chip detection fails with -ENODEV; the
+driver only toggles reset after a successful detection. Request the line
+asserted, then release it and wait before detecting.
+
+Verified by hand: a 20 ms pulse on GPIO1_IO09 makes the switch answer
+(ID 0x1152) and DSA probes.
+---
+diff --git a/drivers/net/dsa/mv88e6xxx/chip.c b/drivers/net/dsa/mv88e6xxx/chip.c
+index 284270a4a..88ab7dce6 100644
+--- a/drivers/net/dsa/mv88e6xxx/chip.c
++++ b/drivers/net/dsa/mv88e6xxx/chip.c
+@@ -7223,13 +7223,21 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
+ 
+ 	chip->info = compat_info;
+ 
+-	chip->reset = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_LOW);
++	/* Request the reset line asserted and pulse it before detection: a
++	 * switch released from reset before its reference clock was stable
++	 * (here supplied by another chip) stays mute on MDIO, and the regular
++	 * hardware reset only happens after a successful detection.
++	 */
++	chip->reset = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
+ 	if (IS_ERR(chip->reset)) {
+ 		err = PTR_ERR(chip->reset);
+ 		goto out;
+ 	}
+-	if (chip->reset)
++	if (chip->reset) {
+ 		usleep_range(10000, 20000);
++		gpiod_set_value_cansleep(chip->reset, 0);
++		msleep(50);
++	}
+ 
+ 	/* Detect if the device is configured in single chip addressing mode,
+ 	 * otherwise continue with address specific smi init/detection.

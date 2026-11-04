@@ -123,7 +123,7 @@ sauf mention contraire.
 | Rétroéclairage | 🧪 | PWM1, 50 µs |
 | Tactile FT5x06 | ✅ | `edt_ft5x06` sur i2c-2 @ 0x38, saisie buffyboard OK |
 | Bouton power | 🧪 | GPIO4_IO10 |
-| Ethernet (FEC + 88E6320 DSA) | ⚠️ | FEC OK (lien fixe 1 Gb/s) ; switch : nœud MDIO présent mais `bind` → ENODEV (ID non reconnu), même DVF99 hors reset. Diagnostic : [tools/mdio-scan](../tools/mdio-scan/) |
+| Ethernet (FEC + 88E6320 DSA) | ✅ | switch 88E6320 rév. 2 (ID `0x1152`), ports `lan` et `pc`. Il restait muet sur le MDIO tant qu'on ne pulsait pas son reset (GPIO1_IO09) une fois l'horloge de la DVF99 présente : patch noyau `0001-net-dsa-mv88e6xxx-pulse-reset-before-detection` |
 | USB OTG (gadget) | ✅ `usb0` en 172.16.42.1 |
 | USB hôte (hub USB2512) | 🧪 | |
 | Wi-Fi AR6003 (usdhc1) | ✅ | `wlan0` ; fw 3.2.0.144 api 3 avec `linux-firmware-ath6k` (fichiers `.zst`, d'où `CONFIG_FW_LOADER_COMPRESS_ZSTD`). Board file générique `bdata.SD31` : reprendre le `bdata.bin` d'Android pour la calibration (non publié) |
