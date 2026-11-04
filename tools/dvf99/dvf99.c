@@ -58,6 +58,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -973,9 +974,24 @@ static void spk_amp(int fd, struct decoder *d, int on)
  * woofer = AMP_OUT2/AMP_OUT3 en pont (DAC0 / DAC0 inversé), slots TDM 8..11 ;
  * tweeter = second canal, slots 4..7, sans extrémité ; ampli sur GPIO D10.
  * -S autre que DAC0 : liaison analogique (ex. 22 = DIFFIN0 → micro dans le HP). */
+static volatile sig_atomic_t stop_req;
+static void on_stop(int sig) { (void)sig; stop_req = 1; }
+
 static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, int hold, int keep)
 {
 	if (do_init(fd, d)) return 1;
+	/* une instance précédente tuée sans libérer laisse ses canaux AFE pris
+	 * (la classe D est alors refusée) : on libère les identifiants connus */
+	{
+		uint8_t b[16]; unsigned n;
+		int q = quiet; quiet = 1;
+		for (uint32_t c = 0xF0; c <= 0xF3; c++) {
+			n = ie_media_channel(b, 0, c, 0);
+			send_msg(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n);
+			read_for(fd, d, 0.2);
+		}
+		quiet = q;
+	}
 	int dac = src == AFE_AMPOUT_IN_DAC0;
 	int o2 = AFE_AMP_OUT0 + 2, o3 = AFE_AMP_OUT0 + 3;
 	uint32_t woofer, tweeter = 0;
@@ -1028,9 +1044,27 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 	}
 	if (keep) {
 		out("9) -k : chemin laissé ouvert (Ctrl-C pour quitter, la DVF99 garde l'état)\n");
-		for (;;) {
+		struct sigaction sa = { 0 };
+		sa.sa_handler = on_stop;
+		sigaction(SIGTERM, &sa, NULL);
+		sigaction(SIGINT, &sa, NULL);
+		while (!stop_req) {
 			if (read_for(fd, d, 0.5) < 0) return 1;
 			call_step(d);
+		}
+		out("arrêt demandé\n");
+		if (d->call.active) {		/* raccroche côté base */
+			uint8_t b[32], v[8]; unsigned n;
+			if (d->call.started) {
+				n = ie_media_channel(b, 0, d->call.chan, 0);
+				send_msg(fd, d, EV_DEM_CHANNEL_STOP, b, n);
+			}
+			put32(v, d->call.inst);
+			n = ie_add(b, 0, IE_CALLINSTANCE, v, 4);
+			memset(v, 0, 5);		/* CMBS_REL_REASON_NORMAL */
+			n = ie_add(b, n, 8, v, 5);
+			send_msg(fd, d, EV_CALL_RELEASE, b, n);
+			read_for(fd, d, 0.5);
 		}
 	}
 

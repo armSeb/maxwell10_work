@@ -398,3 +398,24 @@ synchro est probablement décalée d'un bit : essayer `dsp_a` / `dsp_b` / `i2s` 
   pas un volume de lecture, ne pas y toucher.
 - Le « tweeter » d'Android est alloué sur la ressource **classe D** (`AFE_RESOURCE_TYPE` = 1, relevé dans
   `enableDevice`), pas DAC/ADC : c'est l'ampli intégré de la DVF99. `dvf99` l'alloue désormais ainsi.
+
+## Appel du combiné (mode service, 2026-11-04)
+
+Relevé sur la base réelle (touche verte du combiné, décroché automatique de `dvf99`) :
+
+```
+← CALL_ESTABLISH (46)     CALLINSTANCE n, CALLERPARTY « 1 », MEDIADESCRIPTOR {WB, 7 codecs}
+→ CALL_PROGRESS (47)      CALLINSTANCE, MEDIADESCRIPTOR {5, 2, [5, 6]}, CALLPROGRESS 2 (proceeding)
+← CALL_MEDIA_UPDATE (54)  CALLINSTANCE, MEDIACHANNEL {canal 0, 0, 0}
+← CALL_STATE (45)         CALLSTATE 00 03 03 01 00 00
+→ CALL_ANSWER (48)        CALLINSTANCE
+→ DEM_CHANNEL_START (61)  MEDIACHANNEL {0, slots, 0}
+← CALL_RELEASE (49)       au raccroché → DEM_CHANNEL_STOP (65) + CALL_RELEASECOMPLETE (50)
+```
+
+Le canal média de l'appel porte l'identifiant **0** (les canaux AFE locaux : 0xF0..). Avec les slots
+0xF000 (mots 6 et 7, non émis par le SSI à ce stade), le combiné entend un souffle pendant une lecture :
+le flux TDM lui parvient bien.
+
+Un `dvf99` arrêté sans libérer ses canaux AFE laisse la ressource classe D prise (refus code 5 au
+démarrage suivant) : le mode service libère désormais 0xF0..0xF3 au démarrage et ses canaux sur SIGTERM.
