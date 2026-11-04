@@ -221,6 +221,30 @@ L'hôte doit répondre (CALL_PROGRESS / ANSWER / MEDIA_OFFER puis DEM_CHANNEL_ST
 c'est sur ce canal d'appel que les tonalités (`DEM_TONE_START`) ont un sens. Séquence exacte à relever
 (logcat Android ou capture UART).
 
+## Haut-parleur sous Android (logcat, 2026-11-04)
+
+`CMBSServer` journalise les événements (sans leurs IE). Activation de la sortie « speaker » (Android
+`AUDIO_DEVICE_OUT_SPEAKER`, 16 kHz, `bWideBand = 1`, carte ALSA 1 = DVF99 sur SSI2) :
+
+| Étape | Événements (requête → réponse) |
+|---|---|
+| appareil 0 (« woofer ») | `AFE_CHANNEL_ALLOCATE` → canal **0xF0** ; 2 × `AFE_ENDPOINT_CONNECT` ; 2 × `AFE_ENDPOINT_ENABLE` ; 2 × `AFE_ENDPOINT_GAIN` ; `DEM_CHANNEL_START` ; **`GPIO_ENABLE` (254)** ; **`GPIO_CONFIG_SET` (258)** |
+| appareil 1 (« **tweeter** ») | `AFE_CHANNEL_ALLOCATE` → canal **0xF2** ; `DEM_CHANNEL_START` (aucun point AFE connecté) |
+| arrêt | désactivation des points, fermeture de 0xF0, « Disable Tweeter », fermeture de 0xF2 |
+
+Conclusions :
+
+- le haut-parleur est un ensemble **woofer + tweeter** : deux canaux, le tweeter probablement sur la
+  ressource « classe D » (`AFE_RESOURCE_TYPE` = 1) ;
+- l'ampli du woofer est activé par un **GPIO de la DVF99** (`GPIO_ENABLE` puis `GPIO_CONFIG_SET`), d'où le
+  silence de nos essais ; banque et numéro du GPIO restent à trouver (désassemblage de `CMBSServer`) ;
+- deux sorties AFE (cohérent avec `amp_out0 = amp_out1 = 1`) et deux gains ;
+- au démarrage, `CMBSServer` fixe des `CMBS_PARAM_*` (puissances RF, `RXTUN`, `PREAM_NORM`, `AUXBGPROG_DIRECT`,
+  `TEST_MODE`…) et `TDM configuration is: 1` ;
+- un GPIO de la DVF99 est lu en boucle (`GPIO_CONFIG_GET`, ~2 Hz, valeur 0/1) après raccroché.
+
+⚠️ Ce logcat contient le RFPI de la base : ne pas le publier.
+
 ## Sous Linux mainline : premiers pas
 
 État : la DVF99 est **hors reset** (gpio-hog sur GPIO4_IO22, pour l'horloge du switch) et reste dans
