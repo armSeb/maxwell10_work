@@ -116,6 +116,42 @@ static int open_tty(const char *path)
 #define IE_RESPONSE		22
 #define IE_PARAMETER_AREA	26
 
+static const char *ie_name(unsigned t)
+{
+	switch (t) {
+	case 1:  return "CALLINSTANCE";
+	case 10: return "MEDIACHANNEL";
+	case 12: return "MEDIADESCRIPTOR";
+	case 13: return "TONE";
+	case 22: return "RESPONSE";
+	case 26: return "PARAMETER_AREA";
+	case 28: return "HANDSETS";
+	case 32: return "DATA";
+	case 82: return "AFE_ENDPOINT_CONNECT";
+	case 83: return "AFE_ENDPOINT";
+	case 84: return "AFE_ENDPOINT_GAIN";
+	case 88: return "AFE_RESOURCE_TYPE";
+	case 89: return "AFE_INSTANCE_NUM";
+	default: return NULL;
+	}
+}
+
+static void out(const char *fmt, ...);
+
+/* liste des IE d'une trame : type, nom, longueur, début de la valeur */
+static void ie_print(const uint8_t *p, unsigned n)
+{
+	for (unsigned i = 0; i + 4 <= n; ) {
+		unsigned t = p[i] | p[i + 1] << 8, l = p[i + 2] | p[i + 3] << 8;
+		if (i + 4 + l > n) { out("      (IE tronqué)\n"); return; }
+		const char *nm = ie_name(t);
+		out("      IE %u%s%s%s, %u octet(s) :", t, nm ? " (" : "", nm ? nm : "", nm ? ")" : "", l);
+		for (unsigned j = 0; j < l && j < 24; j++) out(" %02x", p[i + 4 + j]);
+		out(l > 24 ? " …\n" : "\n");
+		i += 4 + l;
+	}
+}
+
 static const char *event_name(unsigned id)
 {
 	switch (id) {
@@ -150,6 +186,7 @@ static const char *event_name(unsigned id)
 	case 248: return "CMBS_EV_DSR_AFE_CHANNEL_ALLOCATE_RES";
 	case 249: return "CMBS_EV_DSR_AFE_CHANNEL_DEALLOCATE";
 	case 250: return "CMBS_EV_DSR_AFE_CHANNEL_DEALLOCATE_RES";
+	case 274: return "(hors énumération 03.64 : données du combiné, firmware Gigaset)";
 	case 7:   return "CMBS_EV_DSR_HS_REGISTERED";
 	case 8:   return "CMBS_EV_DSR_HS_IN_RANGE";
 	case 74:  return "CMBS_EV_DSR_PARAM_UPDATED";
@@ -262,6 +299,7 @@ static void feed(struct decoder *d, uint8_t c)
 		d->params[d->got++] = c;
 		if (d->got == d->need) {
 			hexdump(d->params, d->need);
+			ie_print(d->params, d->need);
 			d->state = 0;
 			on_frame(d, d->last_ev, d->params, d->need);
 		}

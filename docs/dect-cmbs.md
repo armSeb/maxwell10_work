@@ -192,6 +192,21 @@ Liaison analogique micro → ampli (`-S 19/20/21`) : toutes les requêtes OK, **
 Premier essai sans TDM : `dvf99 -e nvram.bin tone` — canal AFE, `AMP_OUT0..3 ← DAC0`, tonalité 5 s.
 Le haut-parleur qui sonne identifie la bonne sortie (`-a N` pour n'en tester qu'une).
 
+## Combiné DECT : premier signe de vie sous mainline
+
+Avec la base démarrée par `dvf99` (EEPROM émulée), **décrocher puis raccrocher le combiné** produit :
+
+```
+← événement 274 (hors de l'énumération 03.64 : ajout du firmware Gigaset)
+   IE 28 HANDSETS : 01 00                       combiné n° 1
+   IE 32 DATA     : 07 00 81 05 05 01 02 00 27  décroché
+   IE 32 DATA     : 07 00 81 05 05 01 02 01 27  raccroché
+```
+
+La liaison radio fonctionne donc, avec les appairages relus dans l'EEPROM émulée : le combiné joint la base
+et lui signale son état. L'octet 7 de DATA porte l'état du crochet (0 décroché, 1 raccroché) ; le reste
+(`81 05 05 01 02`, `27`) reste à interpréter.
+
 ## Sous Linux mainline : premiers pas
 
 État : la DVF99 est **hors reset** (gpio-hog sur GPIO4_IO22, pour l'horloge du switch) et reste dans
