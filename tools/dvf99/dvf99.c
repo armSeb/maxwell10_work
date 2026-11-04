@@ -1196,10 +1196,12 @@ int main(int argc, char **argv)
 	 * « DVF99 » (mono 16 kHz) ; s'arrête en erreur si l'UART disparaît */
 	if (!strcmp(mode, "service")) return mode_speaker(fd, &d, AFE_AMPOUT_IN_DAC0, gain, -1, 0, 1);
 usage:
+	fprintf(stderr, "dvf99 (appels combiné, %s)\n", __DATE__);
 	fprintf(stderr, "usage : dvf99 [-d TTY] [-l JOURNAL] [-e NVRAM] [-U] console|boot|sniff|init\n"
 			"        dvf99 [-e NVRAM] [-a AMP 0..3] [-t TONALITÉ] [-s] [-S SOURCE] tone\n"
 			"        dvf99 [-e NVRAM] [-S SOURCE] [-g GAIN] [-t TONALITÉ|-1] [-w S] [-k] speaker\n"
-			"        dvf99 [-q] [-e NVRAM] [-g GAIN] [-W SLOTS] service\n"
+			"        dvf99 [-q] [-e NVRAM] [-g GAIN] [-P SLOTS] [-W SLOTS] [-C SLOTS] [-N] service\n"
+			"          (service : touche verte du combiné = décroché automatique, -N pour non)\n"
 			"        dvf99 [-e NVRAM] param N [=HEX] [N [=HEX]…]\n"
 			"        dvf99 -f CAPTURE sniff\n");
 	return 2;
