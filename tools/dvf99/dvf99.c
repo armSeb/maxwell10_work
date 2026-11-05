@@ -1035,7 +1035,10 @@ static void spk_amp(int fd, struct decoder *d, int on)
  * woofer = AMP_OUT2/AMP_OUT3 en pont (DAC0 / DAC0 inversé), slots TDM 8..11 ;
  * tweeter = second canal, slots 4..7, sans extrémité ; ampli sur GPIO D10.
  * -S autre que DAC0 : liaison analogique (ex. 22 = DIFFIN0 → micro dans le HP). */
-static int settle_s = 30;	/* -I : attente du combiné avant d'ouvrir les canaux (service) */
+static int settle_s = 30;
+static int front_src = -1;		/* -F SRC : micro de façade, entrée de l'ADC0 (E_CMBS_AFE_CHANNEL) */
+static unsigned front_slots = 0x00F0;	/* -Q : slots de réception du micro de façade */
+static int front_gain = 16;		/* gain d'entrée (16 = +20 dB) */	/* -I : attente du combiné avant d'ouvrir les canaux (service) */
 static volatile sig_atomic_t stop_req;
 
 /* ---------- moteur audio (-A) ------------------------------------------------
@@ -1396,6 +1399,29 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 			channel_start(fd, d, tweeter, tw, 1);
 	}
 
+	/* Micro de façade (essai) : les « appareils » 2 à 5 de la bibliothèque
+	 * Android routent un micro vers l'ADC0 : 2 = micro numérique DIGMIC1 (15),
+	 * 3 = SINGIN0-SINGIN1 (11) via AMP_SINGIN0/1, 4 = DIFFIN0 (9) via
+	 * AMP_DIFFIN0, 5 = DIFFIN1 (10) via AMP_DIFFIN1. */
+	if (front_src >= 0) {
+		uint32_t fch;
+		out("6b) micro de façade : ADC0 ← %d, slots 0x%04x\n", front_src, front_slots);
+		if (!afe_alloc(fd, d, &fch, 0)) {
+			int pre1 = -1, pre2 = -1, bias = -1;
+			if (front_src == AFE_ADC_IN_DIFFIN0) { pre1 = AFE_AMP_DIFFIN0; bias = AFE_MIC0; }
+			else if (front_src == AFE_ADC_IN_DIFFIN0 + 1) { pre1 = AFE_AMP_DIFFIN1; bias = AFE_MIC1; }
+			else if (front_src == 11) { pre1 = AFE_AMP_SINGIN0; pre2 = AFE_AMP_SINGIN0 + 1; bias = AFE_MIC0; }
+			afe_connect(fd, d, 33, front_src);		/* ADC0 */
+			if (pre1 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, pre1, "AFE_ENDPOINT_ENABLE (préampli)");
+			if (pre2 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, pre2, "AFE_ENDPOINT_ENABLE (préampli)");
+			if (bias >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, bias, "AFE_ENDPOINT_ENABLE (polarisation)");
+			afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, 33, "AFE_ENDPOINT_ENABLE (ADC0)");
+			if (pre1 >= 0) set_gain(fd, d, pre1, front_gain);
+			if (pre2 >= 0) set_gain(fd, d, pre2, front_gain);
+			channel_start(fd, d, fch, front_slots, 1);
+		}
+	}
+
 	out("7) ampli du haut-parleur (GPIO D10 de la DVF99)\n");
 	spk_amp(fd, d, 1);
 
@@ -1569,7 +1595,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:F:Q:G:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -1595,6 +1621,9 @@ int main(int argc, char **argv)
 		case 'X': tweeter_pct = atoi(optarg); break;
 		case 'M': audio_nomic = 1; break;
 		case 'I': settle_s = atoi(optarg); break;
+		case 'F': front_src = atoi(optarg); break;
+		case 'Q': front_slots = strtoul(optarg, NULL, 0); break;
+		case 'G': front_gain = atoi(optarg); break;
 		case 'D': audio_probe = atoi(optarg) % 3; break;
 		default: goto usage;
 		}

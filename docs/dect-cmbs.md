@@ -470,3 +470,23 @@ enregistrement de son micro sous PulseAudio.
 - **Micro du combiné validé** : voies 0-1 de la capture pendant un appel (crêtes 7608 / 10242 en parlant).
 - La base ne signale pas toujours `HS_IN_RANGE` : le mode service considère aussi les données du combiné
   (événement 274) comme preuve de présence.
+
+## Micro de façade (à identifier)
+
+Table `device_config_info` de la bibliothèque Android (108 octets par appareil) : mot 5 = décalage de
+slot, mot 6 = nombre de liaisons, puis liaisons `(a, b)` en demi-mots (`a ≤ 3` : `AMP_OUTa ← DACb` ;
+`a > 3` : `ADC(a-4) ← entrée b+9`), puis liste des points à activer (indice + 25), mot 25 = GPIO de banc D.
+
+| Appareil | Slot | Liaisons | Points activés | GPIO |
+|---|---|---|---|---|
+| 0 woofer | 8 | OUT2 ← DAC0, OUT3 ← DAC0_INV | OUT2, OUT3 | D10 |
+| 1 tweeter | 4 | — (classe D) | — | — |
+| 2 | 0 | ADC0 ← **DIGMIC1** (15) | (indice 10) | — |
+| 3 | 0 | OUT0 ← DAC0, OUT1 ← DAC0_INV, ADC0 ← SINGIN0-SINGIN1 (11) | OUT0, OUT1, AMP_SINGIN0/1 | D11 |
+| 4 | 0 | idem, ADC0 ← **DIFFIN0** (9) | OUT0, OUT1, AMP_DIFFIN0, ADC0 | D11 |
+| 5 | 0 | idem, ADC0 ← **DIFFIN1** (10) | OUT0, OUT1, AMP_DIFFIN1, ADC0 | D11 |
+
+Les appareils 2 à 5 (slot 0, celui des appels) sont les chemins « téléphone » de la tablette (mains
+libres, écouteur sur OUT0/OUT1 + GPIO D11). Le micro de façade est l'une de leurs entrées : `dvf99 -F SRC`
+(15, 9, 10 ou 11) ouvre un canal ADC0 ← SRC sur les slots `-Q` (0x00F0 par défaut) ; ses crêtes
+apparaissent dans `audio : capture : … crêtes voies 0..5`.
