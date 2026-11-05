@@ -35,6 +35,20 @@ sinon), pas de reset logiciel 0x0103 ni de 0x5019, réglages image (AWB, gamma, 
 module. Code media bus : `UYVY8_2X8` ; le pad source du CSI de l'IPU reste en `AYUV32`, la capture
 ressort en YUYV.
 
+## Au démarrage (paquet `device-gigaset-maxwell10`)
+
+Sur i.MX6, `/dev/videoN` n'est que la sortie d'une chaîne media-controller : sans liens ni formats,
+le nœud refuse le flux et les applis affichent « impossible de diffuser le flux de la caméra ». La
+règle udev `62-maxwell-camera.rules` lance `maxwell-camera.service` dès que le sous-périphérique du
+capteur apparaît ; il pose la chaîne (`/usr/libexec/maxwell-camera`, taille
+`MAXWELL_CAMERA_SIZE=1280x720|640x480` dans `/etc/default/maxwell-camera`). Le nœud de capture a
+le nom stable `/dev/video-camera`. L'appli Appareil photo (PipeWire, nœud V4L2) affiche alors
+l'image. PipeWire liste aussi les autres nœuds imx-media (IC prpenc/prpvf, IPU2, csc-scaler), non
+câblés ; c'est le premier (`ipu1_csi0 capture`) qui est choisi par défaut.
+
+libcamera ne gère pas l'IPU de l'i.MX6 : pas de pipeline libcamera, PipeWire passe par son
+greffon V4L2.
+
 ## Essai
 
 ```sh

@@ -1,0 +1,8 @@
+[Unit]
+Description=Caméra OV9740 : liens et formats imx-media
+# lancé par la règle udev 62-maxwell-camera.rules quand le capteur apparaît
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/maxwell-camera

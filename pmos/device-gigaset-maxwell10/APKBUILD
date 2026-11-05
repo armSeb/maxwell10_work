@@ -2,7 +2,7 @@
 pkgname=device-gigaset-maxwell10
 pkgdesc="Gigaset Maxwell 10"
 pkgver=1
-pkgrel=11
+pkgrel=12
 url="https://github.com/armSeb/maxwell10_work"
 license="MIT"
 arch="armv7"
@@ -13,6 +13,7 @@ depends="
 	bluez
 	bluez-deprecated
 	zstd
+	v4l-utils
 	"
 makedepends="devicepkg-dev linux-headers"
 install="$pkgname.post-install $pkgname.post-upgrade"
@@ -31,6 +32,9 @@ source="
 	maxwell-bluetooth
 	maxwell-bluetooth.service
 	80-gigaset-maxwell10-user.preset
+	maxwell-camera
+	maxwell-camera.service
+	62-maxwell-camera.rules
 	"
 
 build() {
@@ -62,6 +66,11 @@ package() {
 	install -Dm755 "$srcdir"/maxwell-bluetooth "$pkgdir"/usr/libexec/maxwell-bluetooth
 	install -Dm644 "$srcdir"/maxwell-bluetooth.service \
 		"$pkgdir"/usr/lib/systemd/system/maxwell-bluetooth.service
+	install -Dm755 "$srcdir"/maxwell-camera "$pkgdir"/usr/libexec/maxwell-camera
+	install -Dm644 "$srcdir"/maxwell-camera.service \
+		"$pkgdir"/usr/lib/systemd/system/maxwell-camera.service
+	install -Dm644 "$srcdir"/62-maxwell-camera.rules \
+		"$pkgdir"/usr/lib/udev/rules.d/62-maxwell-camera.rules
 }
 
 nonfree_firmware() {

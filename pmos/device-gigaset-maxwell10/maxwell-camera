@@ -1,0 +1,31 @@
+#!/bin/sh
+# Pose la chaîne imx-media de la caméra OV9740 pour que /dev/video* (« ipu1_csi0 capture »)
+# soit directement utilisable par PipeWire / les applis (sans liens, le nœud refuse le flux) :
+#   ov9740 → imx6-mipi-csi2 (VC0) → ipu1_csi0_mux → ipu1_csi0 → ipu1_csi0 capture
+# Taille : MAXWELL_CAMERA_SIZE dans /etc/default/maxwell-camera (1280x720 ou 640x480).
+set -eu
+[ -r /etc/default/maxwell-camera ] && . /etc/default/maxwell-camera
+size=${MAXWELL_CAMERA_SIZE:-1280x720}
+w=${size%x*}; h=${size#*x}
+
+cam=
+for i in $(seq 20); do
+	cam=$(media-ctl -p 2>/dev/null | sed -n "s/.*entity [0-9]*: \(ov9740 [0-9]*-0010\).*/\1/p" | head -1)
+	[ -n "$cam" ] && break
+	sleep 1
+done
+[ -n "$cam" ] || { echo "capteur ov9740 absent du graphe media" >&2; exit 1; }
+
+media-ctl -r
+media-ctl -l "'$cam':0 -> 'imx6-mipi-csi2':0[1]"
+media-ctl -l "'imx6-mipi-csi2':1 -> 'ipu1_csi0_mux':0[1]"
+media-ctl -l "'ipu1_csi0_mux':2 -> 'ipu1_csi0':0[1]"
+media-ctl -l "'ipu1_csi0':2 -> 'ipu1_csi0 capture':0[1]"
+fmt="UYVY8_2X8/${w}x${h} field:none"
+media-ctl -V "'$cam':0 [fmt:$fmt]"
+media-ctl -V "'imx6-mipi-csi2':1 [fmt:$fmt]"
+media-ctl -V "'ipu1_csi0_mux':2 [fmt:$fmt]"
+# l'IDMAC du CSI n'accepte pas UYVY8_2X8 en sortie : AYUV32, converti par l'IPU
+media-ctl -V "'ipu1_csi0':2 [fmt:AYUV32/${w}x${h} field:none]"
+dev=$(media-ctl -e 'ipu1_csi0 capture')
+echo "caméra prête : $cam → $dev (${w}x${h})"

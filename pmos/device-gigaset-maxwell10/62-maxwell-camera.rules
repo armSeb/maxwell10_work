@@ -1,0 +1,5 @@
+# Le sous-périphérique du capteur n'apparaît qu'une fois le graphe imx-media complet :
+# on pose alors les liens et formats (maxwell-camera.service).
+SUBSYSTEM=="video4linux", KERNEL=="v4l-subdev*", ATTR{name}=="ov9740 *", TAG+="systemd", ENV{SYSTEMD_WANTS}+="maxwell-camera.service"
+# nom stable pour le nœud de capture (les numéros /dev/videoN dépendent de l'ordre de sonde)
+SUBSYSTEM=="video4linux", ATTR{name}=="ipu1_csi0 capture", SYMLINK+="video-camera"
