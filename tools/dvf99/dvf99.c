@@ -955,11 +955,33 @@ release:
 	return 0;
 }
 
-static unsigned ie_gpio_id(uint8_t *b, unsigned at)
+static unsigned ie_gpio_n(uint8_t *b, unsigned at, unsigned gpio)
 {
 	uint8_t v[5];
-	put32(v, SPK_GPIO); v[4] = SPK_GPIO_BANK;	/* ST_GPIO_ID : u32 numéro, u8 banc */
+	put32(v, gpio); v[4] = SPK_GPIO_BANK;		/* ST_GPIO_ID : u32 numéro, u8 banc (D) */
 	return ie_add(b, at, IE_GPIO_ID, v, sizeof v);
+}
+
+static unsigned ie_gpio_id(uint8_t *b, unsigned at)
+{
+	return ie_gpio_n(b, at, SPK_GPIO);
+}
+
+/* GPIO du banc D de la DVF99 en sortie, à la valeur donnée */
+static void dvf_gpio(int fd, struct decoder *d, unsigned gpio, int val)
+{
+	uint8_t b[48]; unsigned n;
+	char w[48];
+	n = ie_gpio_n(b, 0, gpio);
+	snprintf(w, sizeof w, "GPIO_ENABLE D%u", gpio);
+	request(fd, d, EV_GPIO_ENABLE, b, n, w);
+	n = ie_gpio_n(b, 0, gpio);
+	n = ie_u8(b, n, IE_GPIO_MODE, 1);
+	n = ie_u8(b, n, IE_GPIO_PULL_TYPE, 1);
+	n = ie_u8(b, n, IE_GPIO_PULL_ENA, 0);
+	n = ie_u8(b, n, IE_GPIO_VALUE, val);
+	snprintf(w, sizeof w, "GPIO_CONFIG_SET D%u = %d", gpio, val);
+	request(fd, d, EV_GPIO_CONFIG_SET, b, n, w);
 }
 
 static unsigned ie_u8(uint8_t *b, unsigned at, unsigned type, unsigned val)
@@ -1578,8 +1600,13 @@ static int mode_param(int fd, struct decoder *d, int argc, char **argv)
  * haut-parleur, les slots 0..3 sont libres. */
 static int mode_mictest(int fd, struct decoder *d)
 {
-	static const int srcs[] = { 15, 16, 9, 10, 11 };
-	static const unsigned masks[] = { 0x000F, 0x00F0 };
+	/* essai n°2 : GPIO D11 (activé par Android pour les appareils 3 à 5),
+	 * polarisations MIC0 et MIC1 toujours, gain +30 dB, et pour les micros
+	 * numériques aussi l'ADC1/ADC2 (l'appareil 2 active l'indice 10 = ADC2) */
+	static const struct { int src, adc; } tries[] = {
+		{ 15, 33 }, { 15, 35 }, { 16, 34 }, { 16, 35 }, { 9, 33 }, { 10, 33 }, { 11, 33 },
+		{ 9, 34 }, { 10, 35 },
+	};
 	if (do_init(fd, d)) return 1;
 	{
 		uint8_t b[16]; unsigned n;
@@ -1593,45 +1620,45 @@ static int mode_mictest(int fd, struct decoder *d)
 	}
 	audio_on = 1; audio_start();
 	read_for(fd, d, 3.0);
-	for (unsigned m = 0; m < sizeof masks / sizeof *masks; m++)
-	for (unsigned i = 0; i < sizeof srcs / sizeof *srcs; i++) {
-		int src = srcs[i];
+	dvf_gpio(fd, d, 11, 1);
+	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, AFE_MIC0, "AFE_ENDPOINT_ENABLE (MIC0)");
+	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, AFE_MIC1, "AFE_ENDPOINT_ENABLE (MIC1)");
+	for (unsigned i = 0; i < sizeof tries / sizeof *tries; i++) {
+		int src = tries[i].src, adc = tries[i].adc;
 		uint32_t ch;
-		out("\n=== entrée %d, slots 0x%04x ===\n", src, masks[m]);
+		out("\n=== entrée %d → ADC%d, slots 0x00f0 ===\n", src, adc - 33);
 		if (afe_alloc(fd, d, &ch, 0)) { read_for(fd, d, 1.0); continue; }
-		int pre1 = -1, pre2 = -1, bias = -1;
-		if (src == 9) { pre1 = AFE_AMP_DIFFIN0; bias = AFE_MIC0; }
-		else if (src == 10) { pre1 = AFE_AMP_DIFFIN1; bias = AFE_MIC1; }
-		else if (src == 11) { pre1 = AFE_AMP_SINGIN0; pre2 = AFE_AMP_SINGIN0 + 1; bias = AFE_MIC0; }
-		afe_connect(fd, d, 33, src);
+		int pre1 = -1, pre2 = -1;
+		if (src == 9) pre1 = AFE_AMP_DIFFIN0;
+		else if (src == 10) pre1 = AFE_AMP_DIFFIN1;
+		else if (src == 11) { pre1 = AFE_AMP_SINGIN0; pre2 = AFE_AMP_SINGIN0 + 1; }
+		afe_connect(fd, d, adc, src);
 		if (pre1 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, pre1, "AFE_ENDPOINT_ENABLE");
 		if (pre2 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, pre2, "AFE_ENDPOINT_ENABLE");
-		if (bias >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, bias, "AFE_ENDPOINT_ENABLE");
-		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, 33, "AFE_ENDPOINT_ENABLE (ADC0)");
-		if (pre1 >= 0) set_gain(fd, d, pre1, front_gain);
-		if (pre2 >= 0) set_gain(fd, d, pre2, front_gain);
-		channel_start(fd, d, ch, masks[m], 1);
+		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, adc, "AFE_ENDPOINT_ENABLE (ADC)");
+		if (pre1 >= 0) set_gain(fd, d, pre1, 22);	/* +30 dB */
+		if (pre2 >= 0) set_gain(fd, d, pre2, 22);
+		channel_start(fd, d, ch, 0x00F0, 1);
 		read_for(fd, d, 1.0);
 		for (int k = 0; k < 6; k++) cap_peak[k] = 0;
-		out("   SILENCE 8 s…\n");
-		read_for(fd, d, 8.0);
+		out("   SILENCE 6 s…\n");
+		read_for(fd, d, 6.0);
 		int sil[6];
 		for (int k = 0; k < 6; k++) { sil[k] = cap_peak[k]; cap_peak[k] = 0; }
-		out("   PARLE 8 s…\n");
-		read_for(fd, d, 8.0);
-		out("   crêtes silence : %d %d %d %d %d %d\n", sil[0], sil[1], sil[2], sil[3], sil[4], sil[5]);
-		out("   crêtes parole  : %d %d %d %d %d %d\n", cap_peak[0], cap_peak[1], cap_peak[2],
-		    cap_peak[3], cap_peak[4], cap_peak[5]);
+		out("   PARLE 6 s…\n");
+		read_for(fd, d, 6.0);
+		out("   crêtes silence / parole (voies 2,3) : %d %d / %d %d\n",
+		    sil[2], sil[3], cap_peak[2], cap_peak[3]);
 		uint8_t b[16]; unsigned n;
 		n = ie_media_channel(b, 0, ch, 0);
 		request(fd, d, EV_DEM_CHANNEL_STOP, b, n, "DEM_CHANNEL_STOP");
-		afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, 33, "AFE_ENDPOINT_DISABLE");
+		afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, adc, "AFE_ENDPOINT_DISABLE");
 		if (pre1 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, pre1, "AFE_ENDPOINT_DISABLE");
 		if (pre2 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, pre2, "AFE_ENDPOINT_DISABLE");
-		if (bias >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, bias, "AFE_ENDPOINT_DISABLE");
 		n = ie_media_channel(b, 0, ch, 0);
 		request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE");
 	}
+	dvf_gpio(fd, d, 11, 0);
 	stop_req = 1;
 	return 0;
 }
