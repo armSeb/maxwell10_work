@@ -174,11 +174,14 @@ become available in PulseAudio). To pair a handset again, see
 The `nvram.bin` files are specific to your unit (DECT identity, pairings, RF calibration): keep a
 copy off the tablet and never publish them.
 
-Useful settings for a wall dashboard (Phosh):
+The screen never blanks and the device never suspends on idle, including on the login screen: the
+device package sets these defaults (`90_gigaset-maxwell10.gschema.override`). To get blanking back
+for your user: `gsettings set org.gnome.desktop.session idle-delay 300`.
+
+Useful setting (Phosh), a big perceived speed gain on this GPU:
 
 ```sh
-gsettings set org.gnome.desktop.interface enable-animations false   # big perceived speed gain
-gsettings set org.gnome.desktop.session idle-delay 0                # never blank the screen
+gsettings set org.gnome.desktop.interface enable-animations false
 ```
 
 ## Updating

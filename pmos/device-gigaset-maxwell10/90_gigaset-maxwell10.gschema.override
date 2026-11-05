@@ -1,0 +1,10 @@
+# Gigaset Maxwell 10: mains-powered desk device, the screen never blanks and
+# the device never suspends on idle (also for the login screen, whose wake-up
+# from blank is unreliable). Per-user settings still take precedence.
+[org.gnome.desktop.session]
+idle-delay=uint32 0
+
+[org.gnome.settings-daemon.plugins.power]
+sleep-inactive-ac-type='nothing'
+sleep-inactive-battery-type='nothing'
+idle-dim=false

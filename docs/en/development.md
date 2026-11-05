@@ -59,6 +59,7 @@ and install with `pmbootstrap sideload` (see [install.md](install.md#updating)).
 | `maxwell-bluetooth.service`, `maxwell-bluetooth` | system unit | power-cycles the AR3002 (GPIO4_IO7), decompresses the `ar3k` firmware, runs `hciattach … ath3k 3000000 flow` |
 | `62-maxwell-camera.rules`, `maxwell-camera.service`, `maxwell-camera` | udev + oneshot unit | camera media pipeline, `/dev/video-camera` |
 | `maxwell-firmware-import.service`, `maxwell-firmware-import` | oneshot unit | copies `vpu_fw_imx6q.bin` and the Wi-Fi `bdata.bin` from Android's `/system` (eMMC p5, read-only) to `/lib/firmware/updates`, then reloads `coda` / `ath6kl_sdio` |
+| `90_gigaset-maxwell10.gschema.override` | `/usr/share/glib-2.0/schemas` | GNOME/Phosh defaults: no screen blanking, no idle suspend (the login screen does not reliably wake up from blank) |
 | `60-maxwell-ioscheduler.rules` | udev | BFQ I/O scheduler on `mmcblk*` |
 | `80-gigaset-maxwell10*.preset` | systemd presets | enable the services |
 

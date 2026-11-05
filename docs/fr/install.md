@@ -174,11 +174,14 @@ dans PulseAudio). Pour appairer de nouveau un combiné, voir
 Les fichiers `nvram.bin` sont propres à l'appareil (identité DECT, appairages, calibration RF) : en
 garder une copie hors de la tablette, ne jamais les publier.
 
-Réglages utiles pour un tableau de bord mural (Phosh) :
+L'écran ne s'éteint jamais et l'appareil ne se met jamais en veille par inactivité, écran de connexion
+compris : le paquet de l'appareil fixe ces valeurs par défaut (`90_gigaset-maxwell10.gschema.override`).
+Pour retrouver l'extinction pour son utilisateur : `gsettings set org.gnome.desktop.session idle-delay 300`.
+
+Réglage utile (Phosh), gros gain de fluidité perçue sur ce GPU :
 
 ```sh
-gsettings set org.gnome.desktop.interface enable-animations false   # gros gain de fluidité perçue
-gsettings set org.gnome.desktop.session idle-delay 0                # l'écran ne s'éteint jamais
+gsettings set org.gnome.desktop.interface enable-animations false
 ```
 
 ## Mettre à jour

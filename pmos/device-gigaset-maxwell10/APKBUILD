@@ -2,7 +2,7 @@
 pkgname=device-gigaset-maxwell10
 pkgdesc="Gigaset Maxwell 10"
 pkgver=1
-pkgrel=16
+pkgrel=17
 url="https://github.com/armSeb/maxwell10_work"
 license="MIT"
 arch="armv7"
@@ -38,6 +38,7 @@ source="
 	62-maxwell-camera.rules
 	maxwell-firmware-import
 	maxwell-firmware-import.service
+	90_gigaset-maxwell10.gschema.override
 	"
 
 build() {
@@ -77,6 +78,8 @@ package() {
 	install -Dm755 "$srcdir"/maxwell-firmware-import "$pkgdir"/usr/libexec/maxwell-firmware-import
 	install -Dm644 "$srcdir"/maxwell-firmware-import.service \
 		"$pkgdir"/usr/lib/systemd/system/maxwell-firmware-import.service
+	install -Dm644 "$srcdir"/90_gigaset-maxwell10.gschema.override \
+		"$pkgdir"/usr/share/glib-2.0/schemas/90_gigaset-maxwell10.gschema.override
 }
 
 nonfree_firmware() {
