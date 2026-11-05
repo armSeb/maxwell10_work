@@ -42,10 +42,10 @@ index fbb988bd0..503118d37 100644
  obj-$(CONFIG_VIDEO_RJ54N1) += rj54n1cb0c.o
 diff --git a/drivers/media/i2c/ov9740.c b/drivers/media/i2c/ov9740.c
 new file mode 100644
-index 000000000..5007c9dce
+index 000000000..d08387bda
 --- /dev/null
 +++ b/drivers/media/i2c/ov9740.c
-@@ -0,0 +1,926 @@
+@@ -0,0 +1,936 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * OmniVision OV9740 — 1/6" 720p YUV sensor, MIPI CSI-2 one lane
@@ -727,6 +727,15 @@ index 000000000..5007c9dce
 +	return 0;
 +}
 +
++static int ov9740_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
++				  struct v4l2_mbus_config *cfg)
++{
++	cfg->type = V4L2_MBUS_CSI2_DPHY;
++	cfg->bus.mipi_csi2.num_data_lanes = 1;
++	cfg->bus.mipi_csi2.flags = 0;	/* horloge continue (MIPI_CTRL00 = 0x44) */
++	return 0;
++}
++
 +static int ov9740_init_state(struct v4l2_subdev *sd, struct v4l2_subdev_state *st)
 +{
 +	ov9740_fill_fmt(v4l2_subdev_state_get_format(st, 0),
@@ -812,6 +821,7 @@ index 000000000..5007c9dce
 +	.enum_frame_size = ov9740_enum_frame_size,
 +	.get_fmt = ov9740_get_fmt,
 +	.set_fmt = ov9740_set_fmt,
++	.get_mbus_config = ov9740_get_mbus_config,
 +};
 +
 +static const struct v4l2_subdev_ops ov9740_subdev_ops = {
