@@ -43,6 +43,10 @@ dmesg | grep -i ov9740            # « OV9740 revision … » = le capteur répo
 sudo tools/camera/ov9740-capture.sh
 ```
 
+Le capteur est réinitialisé à chaque démarrage du flux et repart d'une exposition nulle : les
+premières images sont noires (Y ≈ 0–3, U/V = 0x80) le temps que l'AEC converge, environ 1 à 2 s. Le
+script jette donc 60 images (`SKIP=…` pour changer) ; une application vidéo continue n'est pas gênée.
+
 Chaîne : `ov9740 0-0010` → `imx6-mipi-csi2` (VC0) → `ipu1_csi0_mux` → `ipu1_csi0` → `ipu1_csi0 capture`.
 
 Pistes si ça coince : `sensor not responding` (horloge ou PWDN/RESET : essayer l'autre polarité de

@@ -1,12 +1,16 @@
 #!/bin/sh
 # Monte la chaîne imx-media de la caméra OV9740 et capture une image.
-#   ov9740-capture.sh [LARGEURxHAUTEUR] [fichier]      (défaut 1280x720, /tmp/ov9740.yuv)
+#   ov9740-capture.sh [LARGEURxHAUTEUR] [fichier] [images]   (défaut 1280x720, /tmp/ov9740.yuv, 1)
+# Le capteur repart d'une exposition nulle à chaque démarrage du flux : on jette les
+# SKIP premières images (60 par défaut, ~2 s à 30 i/s) le temps que l'AEC converge.
 # Chaîne (i.MX6Q) : ov9740 → imx6-mipi-csi2 (VC0) → ipu1_csi0_mux → ipu1_csi0 → capture
 # Paquet requis : v4l-utils (media-ctl, v4l2-ctl).
 set -eu
 run() { echo "+ $*"; "$@"; }
 size=${1:-1280x720}
 out=${2:-/tmp/ov9740.yuv}
+count=${3:-1}
+skip=${SKIP:-60}
 w=${size%x*}; h=${size#*x}
 cam=$(media-ctl -p | sed -n "s/.*entity [0-9]*: \(ov9740 [0-9]*-0010\).*/\1/p" | head -1)
 [ -n "$cam" ] || { echo "capteur ov9740 absent du graphe media (dmesg | grep ov9740)" >&2; exit 1; }
@@ -26,6 +30,6 @@ run media-ctl -V "'ipu1_csi0':2 [fmt:AYUV32/${w}x${h} field:none]"
 dev=$(media-ctl -e 'ipu1_csi0 capture')
 echo "nœud vidéo : $dev"
 run v4l2-ctl -d "$dev" --set-fmt-video=width="$w",height="$h",pixelformat=YUYV
-run v4l2-ctl -d "$dev" --stream-mmap --stream-count=5 --stream-skip=4 --stream-to="$out"
+run v4l2-ctl -d "$dev" --stream-mmap --stream-count="$count" --stream-skip="$skip" --stream-to="$out"
 echo "image(s) YUYV ${w}x${h} dans $out ; conversion :"
-echo "  ffmpeg -f rawvideo -pix_fmt yuyv422 -s ${w}x${h} -i $out -frames:v 1 /tmp/ov9740.png"
+echo "  ffmpeg -y -f rawvideo -pix_fmt yuyv422 -s ${w}x${h} -i $out -frames:v 1 /tmp/ov9740.png"
