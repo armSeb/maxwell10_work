@@ -207,16 +207,10 @@
 	/*
 	 * Bluetooth Atheros AR3002 sur UART5 (protocole ATH3K, pas de liaison
 	 * serdev en mainline : hciattach, maxwell-bluetooth.service). Alimentation
-	 * GPIO4_IO07 : niveau HAUT = module en marche (vérifié : timeout à 0,
-	 * réponse à 1). rfkill-gpio ne prenait pas la ligne : simple hog.
+	 * GPIO4_IO07 : niveau HAUT = module en marche. Pas de hog : le service coupe
+	 * l'alimentation avant chaque hciattach (gpioset), sinon une puce restée à
+	 * 3 Mbit/s après un échec ne répond plus jamais à 115200.
 	 */
-	bt-power-hog {
-		gpio-hog;
-		gpios = <7 GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "bt-power";
-	};
-
 	dvf99-reset-hog {
 		gpio-hog;
 		gpios = <22 GPIO_ACTIVE_LOW>;

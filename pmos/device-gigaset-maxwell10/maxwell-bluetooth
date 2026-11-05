@@ -7,7 +7,16 @@ set -eu
 for f in $(find /lib/firmware/ar3k -name '*.zst' 2>/dev/null); do
 	[ -e "${f%.zst}" ] || zstd -dqf "$f" -o "${f%.zst}"
 done
+
+# Alimentation GPIO4_IO07 (banc gpio4 = 20a8000.gpio), niveau haut = marche.
+# Cycle à chaque lancement : après un hciattach raté, la puce peut rester à
+# 3 Mbit/s et ne plus répondre à 115200 ; coupée, elle repart à 115200.
+chip=$(basename "$(ls -d /sys/bus/platform/devices/20a8000.gpio/gpiochip* | head -1)")
+timeout 1 gpioset -c "$chip" -C bt-power 7=0 || true
+# gpioset reste en arrière-plan (dans le cgroup du service) et tient la ligne à 1
+gpioset -z -c "$chip" -C bt-power 7=1
+sleep 0.5
+
 rfkill unblock bluetooth 2>/dev/null || true
-sleep 1
 # 115200 bauds pour le dialogue initial, puis 3 Mbit/s avec contrôle de flux (comme Android)
 exec hciattach -n -s 115200 /dev/ttymxc4 ath3k 3000000 flow

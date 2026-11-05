@@ -4,7 +4,7 @@
 # (goshim + zImage + DTB appendé), initramfs passé par ATAGs. Voir docs/postmarketos.md.
 pkgname=linux-gigaset-maxwell10
 pkgver=6.12
-pkgrel=17
+pkgrel=18
 pkgdesc="Gigaset Maxwell 10 mainline kernel"
 arch="armv7"
 _carch="arm"
