@@ -1,0 +1,42 @@
+From: Maxwell 10 port
+Subject: [PATCH] Bluetooth: hci_ath: skip the broken LE Read Supported States of AR3002
+
+The Atheros AR3002 of the Gigaset Maxwell 10 (UART, ath3k protocol) answers
+LE Read Supported States with a 5-byte Command Complete instead of 9:
+"unexpected cc 0x201c length: 5 < 9", then HCIDEVUP fails with -ENOSYS.
+Set HCI_QUIRK_BROKEN_LE_STATES from the ath setup and honour it by not
+sending the command.
+---
+diff --git a/drivers/bluetooth/hci_ath.c b/drivers/bluetooth/hci_ath.c
+index dbfe34664..0481eb212 100644
+--- a/drivers/bluetooth/hci_ath.c
++++ b/drivers/bluetooth/hci_ath.c
+@@ -178,6 +178,11 @@ static int ath_setup(struct hci_uart *hu)
+ 
+ 	hu->hdev->set_bdaddr = ath_set_bdaddr;
+ 
++	/* AR3002: LE Read Supported States answers 5 bytes instead of 9 and
++	 * the whole init fails with -ENOSYS.
++	 */
++	set_bit(HCI_QUIRK_BROKEN_LE_STATES, &hu->hdev->quirks);
++
+ 	return 0;
+ }
+ 
+diff --git a/net/bluetooth/hci_sync.c b/net/bluetooth/hci_sync.c
+index c0203a2b5..3daeceebb 100644
+--- a/net/bluetooth/hci_sync.c
++++ b/net/bluetooth/hci_sync.c
+@@ -3931,6 +3931,12 @@ static int hci_le_read_local_features_sync(struct hci_dev *hdev)
+ /* Read LE Supported States */
+ static int hci_le_read_supported_states_sync(struct hci_dev *hdev)
+ {
++	/* Some controllers (Atheros AR3002 over UART) answer with a short,
++	 * malformed Command Complete: skip the command, LE states unknown.
++	 */
++	if (test_bit(HCI_QUIRK_BROKEN_LE_STATES, &hdev->quirks))
++		return 0;
++
+ 	return __hci_cmd_sync_status(hdev, HCI_OP_LE_READ_SUPPORTED_STATES,
+ 				     0, NULL, HCI_CMD_TIMEOUT);
+ }

@@ -92,20 +92,6 @@
 		};
 	};
 
-	/*
-	 * Bluetooth Atheros AR3002 sur UART5 (protocole ATH3K, pas de liaison
-	 * serdev en mainline : hciattach). Alimentation GPIO4_IO07, active basse
-	 * d'après le DT vendeur (bt-power-gpios) — inverser si le module reste muet.
-	 */
-	bt_rfkill: rfkill-bt {
-		compatible = "rfkill-gpio";
-		label = "bluetooth";
-		radio-type = "bluetooth";
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_bt>;
-		shutdown-gpios = <&gpio4 7 GPIO_ACTIVE_LOW>;
-	};
-
 	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
@@ -218,6 +204,19 @@
 	 * défaut (donnée d'affichage IPU1) et le niveau du reset n'était pas maîtrisé.
 	 * Un futur pilote DECT pourra reprendre la ligne. Voir docs/hardware.md.
 	 */
+	/*
+	 * Bluetooth Atheros AR3002 sur UART5 (protocole ATH3K, pas de liaison
+	 * serdev en mainline : hciattach, maxwell-bluetooth.service). Alimentation
+	 * GPIO4_IO07 : niveau HAUT = module en marche (vérifié : timeout à 0,
+	 * réponse à 1). rfkill-gpio ne prenait pas la ligne : simple hog.
+	 */
+	bt-power-hog {
+		gpio-hog;
+		gpios = <7 GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "bt-power";
+	};
+
 	dvf99-reset-hog {
 		gpio-hog;
 		gpios = <22 GPIO_ACTIVE_LOW>;
@@ -499,6 +498,7 @@
 	pinctrl_hog: hoggrp {
 		fsl,pins = <
 			0x178 0x48c 0x000 0x5 0x0 0xb0b1	/* DISP0_DAT2 = GPIO4_IO23, ventilateur */
+			0x1fc 0x5cc 0x000 0x5 0x0 0xb0b0	/* KEY_ROW0 = GPIO4_IO07, alimentation Bluetooth */
 			0x244 0x614 0x000 0x5 0x0 0xb0b0	/* GPIO_8 = GPIO1_IO08, reset Wi-Fi */
 			0x23c 0x60c 0x000 0x5 0x0 0x1b0b0	/* GPIO_5 = GPIO1_IO05, LED caméra (active basse), pull-up */
 			0x174 0x488 0x000 0x5 0x0 0x0b0b0	/* DISP0_DAT1 = GPIO4_IO22, reset DVF99 (cf. vendeur) */
@@ -515,12 +515,6 @@
 			0x204 0x5d4 0x940 0x4 0x1 0x1b0b1	/* KEY_ROW1 UART5_RX */
 			0x218 0x5e8 0x93c 0x4 0x0 0x1b0b1	/* KEY_COL4 UART5_RTS_B (entrée en DCE) */
 			0x21c 0x5ec 0x000 0x4 0x0 0x1b0b1	/* KEY_ROW4 UART5_CTS_B */
-		>;
-	};
-
-	pinctrl_bt: btgrp {
-		fsl,pins = <
-			0x1fc 0x5cc 0x000 0x5 0x0 0xb0b0	/* KEY_ROW0 = GPIO4_IO07, alimentation BT */
 		>;
 	};
 

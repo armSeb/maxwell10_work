@@ -20,7 +20,8 @@ fmt="YUYV8_2X8/${w}x${h} field:none"
 run media-ctl -V "'$cam':0 [fmt:$fmt]"
 run media-ctl -V "'imx6-mipi-csi2':1 [fmt:$fmt]"
 run media-ctl -V "'ipu1_csi0_mux':2 [fmt:$fmt]"
-run media-ctl -V "'ipu1_csi0':2 [fmt:$fmt]"
+# la sortie IDMAC du CSI de l'IPU n'accepte pas YUYV8_2X8 : AYUV32, reconverti en YUYV à la capture
+run media-ctl -V "'ipu1_csi0':2 [fmt:AYUV32/${w}x${h} field:none]"
 dev=$(media-ctl -e 'ipu1_csi0 capture')
 echo "nœud vidéo : $dev"
 run v4l2-ctl -d "$dev" --set-fmt-video=width="$w",height="$h",pixelformat=YUYV

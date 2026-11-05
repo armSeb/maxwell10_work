@@ -4,7 +4,7 @@
 # (goshim + zImage + DTB appendé), initramfs passé par ATAGs. Voir docs/postmarketos.md.
 pkgname=linux-gigaset-maxwell10
 pkgver=6.12
-pkgrel=15
+pkgrel=16
 pkgdesc="Gigaset Maxwell 10 mainline kernel"
 arch="armv7"
 _carch="arm"
@@ -42,6 +42,7 @@ source="
 	0002-thermal-imx-add-an-active-trip-for-fans.patch
 	0003-ASoC-DVF9919-TDM-PCM-link.patch
 	0004-media-i2c-add-OmniVision-OV9740-driver.patch
+	0005-Bluetooth-hci_ath-skip-broken-LE-Read-Supported-States.patch
 	"
 builddir="$srcdir/linux-$pkgver"
 
