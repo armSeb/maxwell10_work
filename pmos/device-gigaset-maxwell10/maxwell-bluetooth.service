@@ -1,0 +1,12 @@
+[Unit]
+Description=Bluetooth AR3002 (UART5, hciattach ath3k)
+Before=bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/maxwell-bluetooth
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

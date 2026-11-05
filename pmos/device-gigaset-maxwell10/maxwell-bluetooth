@@ -1,0 +1,13 @@
+#!/bin/sh
+# Bluetooth Atheros AR3002 sur UART5 (/dev/ttymxc4), lancé par maxwell-bluetooth.service.
+# Le pilote hci_uart « ath3k » n'a pas de liaison DT (serdev) : l'attachement et le
+# chargement du firmware se font en espace utilisateur (hciattach, bluez-deprecated),
+# qui lit /lib/firmware/ar3k/ en clair — Alpine les livre compressés en zstd.
+set -eu
+for f in $(find /lib/firmware/ar3k -name '*.zst' 2>/dev/null); do
+	[ -e "${f%.zst}" ] || zstd -dqf "$f" -o "${f%.zst}"
+done
+rfkill unblock bluetooth 2>/dev/null || true
+sleep 1
+# 115200 bauds pour le dialogue initial, puis 3 Mbit/s avec contrôle de flux (comme Android)
+exec hciattach -n -s 115200 /dev/ttymxc4 ath3k 3000000 flow

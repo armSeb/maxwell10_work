@@ -2,7 +2,7 @@
 pkgname=device-gigaset-maxwell10
 pkgdesc="Gigaset Maxwell 10"
 pkgver=1
-pkgrel=9
+pkgrel=10
 url="https://github.com/armSeb/maxwell10_work"
 license="MIT"
 arch="armv7"
@@ -10,6 +10,9 @@ options="!check !archcheck"
 depends="
 	postmarketos-base
 	linux-gigaset-maxwell10
+	bluez
+	bluez-deprecated
+	zstd
 	"
 makedepends="devicepkg-dev linux-headers"
 install="$pkgname.post-install"
@@ -24,6 +27,8 @@ source="
 	61-dvf99-pulseaudio.rules
 	dvf99.pa
 	dvf99-tmpfiles.conf
+	maxwell-bluetooth
+	maxwell-bluetooth.service
 	"
 
 build() {
@@ -48,6 +53,9 @@ package() {
 		"$pkgdir"/usr/lib/udev/rules.d/61-dvf99-pulseaudio.rules
 	install -Dm644 "$srcdir"/dvf99.pa "$pkgdir"/etc/pulse/default.pa.d/dvf99.pa
 	install -Dm644 "$srcdir"/dvf99-tmpfiles.conf "$pkgdir"/usr/lib/tmpfiles.d/dvf99.conf
+	install -Dm755 "$srcdir"/maxwell-bluetooth "$pkgdir"/usr/libexec/maxwell-bluetooth
+	install -Dm644 "$srcdir"/maxwell-bluetooth.service \
+		"$pkgdir"/usr/lib/systemd/system/maxwell-bluetooth.service
 }
 
 nonfree_firmware() {

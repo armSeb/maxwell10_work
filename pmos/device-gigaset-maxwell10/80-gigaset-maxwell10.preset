@@ -1,1 +1,2 @@
 enable dvf99.service
+enable maxwell-bluetooth.service
