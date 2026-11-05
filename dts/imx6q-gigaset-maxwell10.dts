@@ -440,6 +440,55 @@
 	};
 };
 
+/*
+ * Caméra OmniVision OV9740 (720p YUV, MIPI CSI-2 une voie) sur i2c1 @ 0x10.
+ * Horloge 24 MHz : CKO (sortie CCM_CLKO1, pads GPIO_0 et CSI0_MCLK comme le
+ * DT vendeur) prise sur l'oscillateur via CKO2. Alimentations : régulateurs
+ * fixes toujours actifs (1,8 V / 2,8 V) chez le vendeur, donc rien à piloter.
+ * Pilote : patch noyau 0004 (ov9740), chaîne imx-media :
+ * ov9740 → imx6-mipi-csi2 (VC0) → ipu1_csi0_mux → ipu1_csi0. Voir docs/camera.md.
+ */
+&i2c1 {
+	clock-frequency = <100000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_i2c1>;
+	status = "okay";
+
+	camera@10 {
+		compatible = "ovti,ov9740";
+		reg = <0x10>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_ov9740>;
+		clocks = <&clks IMX6QDL_CLK_CKO>;
+		assigned-clocks = <&clks IMX6QDL_CLK_CKO2_SEL>, <&clks IMX6QDL_CLK_CKO>;
+		assigned-clock-parents = <&clks IMX6QDL_CLK_OSC>, <&clks IMX6QDL_CLK_CKO2>;
+		powerdown-gpios = <&gpio5 24 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpio5 23 GPIO_ACTIVE_LOW>;
+
+		port {
+			ov9740_to_mipi_csi2: endpoint {
+				remote-endpoint = <&mipi_csi2_in>;
+				clock-lanes = <0>;
+				data-lanes = <1>;
+			};
+		};
+	};
+};
+
+&mipi_csi {
+	status = "okay";
+
+	port@0 {
+		reg = <0>;
+
+		mipi_csi2_in: endpoint {
+			remote-endpoint = <&ov9740_to_mipi_csi2>;
+			clock-lanes = <0>;
+			data-lanes = <1>;
+		};
+	};
+};
+
 &iomuxc {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_hog>;
@@ -591,6 +640,23 @@
 			MX6QDL_PAD_SD2_DAT3__AUD4_TXC	0x1b0b0
 			MX6QDL_PAD_SD2_DAT2__AUD4_TXD	0x1b0b0
 			MX6QDL_PAD_SD2_DAT1__AUD4_TXFS	0x1b0b0
+		>;
+	};
+
+	pinctrl_i2c1: i2c1grp {
+		fsl,pins = <
+			MX6QDL_PAD_CSI0_DAT8__I2C1_SDA		0x4001b8b1
+			MX6QDL_PAD_CSI0_DAT9__I2C1_SCL		0x4001b8b1
+		>;
+	};
+
+	/* horloge et commandes de l'OV9740 (réglages de pads laissés au défaut, comme le vendeur) */
+	pinctrl_ov9740: ov9740grp {
+		fsl,pins = <
+			MX6QDL_PAD_GPIO_0__CCM_CLKO1		0x80000000
+			MX6QDL_PAD_CSI0_MCLK__CCM_CLKO1		0x80000000
+			MX6QDL_PAD_CSI0_DAT6__GPIO5_IO24	0x80000000	/* PWDN */
+			MX6QDL_PAD_CSI0_DAT5__GPIO5_IO23	0x80000000	/* RESET */
 		>;
 	};
 

@@ -1,0 +1,974 @@
+From: Maxwell 10 port
+Subject: [PATCH] media: i2c: add an OmniVision OV9740 MIPI CSI-2 driver
+
+The OV9740 (720p YUV, one CSI-2 lane) of the Gigaset Maxwell 10 lost its
+driver with soc_camera. Port the NVIDIA driver register tables to a
+media-controller subdevice: DT clock, supplies, power-down/reset GPIOs,
+CSI-2 endpoint, pre_streamon/post_streamoff for the LP-11 handshake of
+imx6-mipi-csi2, LINK_FREQ/PIXEL_RATE and flip controls.
+---
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index 8ba096b8e..670b374d4 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -642,6 +642,16 @@ config VIDEO_OV9734
+ 	  To compile this driver as a module, choose M here: the
+ 	  module's name is ov9734.
+ 
++config VIDEO_OV9740
++	tristate "OmniVision OV9740 sensor support"
++	depends on OF
++	help
++	  This is a Video4Linux2 sensor driver for the OmniVision
++	  OV9740 720p YUV camera (MIPI CSI-2, one lane).
++
++	  To compile this driver as a module, choose M here: the
++	  module's name is ov9740.
++
+ config VIDEO_RDACM20
+ 	tristate "IMI RDACM20 camera support"
+ 	select VIDEO_MAX9271_LIB
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index fbb988bd0..503118d37 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -114,6 +114,7 @@ obj-$(CONFIG_VIDEO_OV9282) += ov9282.o
+ obj-$(CONFIG_VIDEO_OV9640) += ov9640.o
+ obj-$(CONFIG_VIDEO_OV9650) += ov9650.o
+ obj-$(CONFIG_VIDEO_OV9734) += ov9734.o
++obj-$(CONFIG_VIDEO_OV9740) += ov9740.o
+ obj-$(CONFIG_VIDEO_RDACM20) += rdacm20.o
+ obj-$(CONFIG_VIDEO_RDACM21) += rdacm21.o
+ obj-$(CONFIG_VIDEO_RJ54N1) += rj54n1cb0c.o
+diff --git a/drivers/media/i2c/ov9740.c b/drivers/media/i2c/ov9740.c
+new file mode 100644
+index 000000000..5007c9dce
+--- /dev/null
++++ b/drivers/media/i2c/ov9740.c
+@@ -0,0 +1,926 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * OmniVision OV9740 — 1/6" 720p YUV sensor, MIPI CSI-2 one lane
++ *
++ * Copyright (C) 2011 NVIDIA Corporation (original soc_camera driver,
++ * removed from mainline with soc_camera; register tables kept as is)
++ *
++ * Ported to a media-controller V4L2 subdevice for the Gigaset Maxwell 10
++ * (i.MX6Q, imx6-mipi-csi2 + IPU CSI): clock, regulators, power-down/reset
++ * GPIOs and the CSI-2 endpoint come from the device tree; the receiver
++ * drives the LP-11 handshake through pre_streamon/post_streamoff.
++ */
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regulator/consumer.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-device.h>
++#include <media/v4l2-fwnode.h>
++#include <media/v4l2-subdev.h>
++
++
++/* General Status Registers */
++#define OV9740_MODEL_ID_HI		0x0000
++#define OV9740_MODEL_ID_LO		0x0001
++#define OV9740_REVISION_NUMBER		0x0002
++#define OV9740_MANUFACTURER_ID		0x0003
++#define OV9740_SMIA_VERSION		0x0004
++
++/* General Setup Registers */
++#define OV9740_MODE_SELECT		0x0100
++#define OV9740_IMAGE_ORT		0x0101
++#define OV9740_SOFTWARE_RESET		0x0103
++#define OV9740_GRP_PARAM_HOLD		0x0104
++#define OV9740_MSK_CORRUP_FM		0x0105
++
++/* Timing Setting */
++#define OV9740_FRM_LENGTH_LN_HI		0x0340 /* VTS */
++#define OV9740_FRM_LENGTH_LN_LO		0x0341 /* VTS */
++#define OV9740_LN_LENGTH_PCK_HI		0x0342 /* HTS */
++#define OV9740_LN_LENGTH_PCK_LO		0x0343 /* HTS */
++#define OV9740_X_ADDR_START_HI		0x0344
++#define OV9740_X_ADDR_START_LO		0x0345
++#define OV9740_Y_ADDR_START_HI		0x0346
++#define OV9740_Y_ADDR_START_LO		0x0347
++#define OV9740_X_ADDR_END_HI		0x0348
++#define OV9740_X_ADDR_END_LO		0x0349
++#define OV9740_Y_ADDR_END_HI		0x034a
++#define OV9740_Y_ADDR_END_LO		0x034b
++#define OV9740_X_OUTPUT_SIZE_HI		0x034c
++#define OV9740_X_OUTPUT_SIZE_LO		0x034d
++#define OV9740_Y_OUTPUT_SIZE_HI		0x034e
++#define OV9740_Y_OUTPUT_SIZE_LO		0x034f
++
++/* IO Control Registers */
++#define OV9740_IO_CREL00		0x3002
++#define OV9740_IO_CREL01		0x3004
++#define OV9740_IO_CREL02		0x3005
++#define OV9740_IO_OUTPUT_SEL01		0x3026
++#define OV9740_IO_OUTPUT_SEL02		0x3027
++
++/* AWB Registers */
++#define OV9740_AWB_MANUAL_CTRL		0x3406
++
++/* Analog Control Registers */
++#define OV9740_ANALOG_CTRL01		0x3601
++#define OV9740_ANALOG_CTRL02		0x3602
++#define OV9740_ANALOG_CTRL03		0x3603
++#define OV9740_ANALOG_CTRL04		0x3604
++#define OV9740_ANALOG_CTRL10		0x3610
++#define OV9740_ANALOG_CTRL12		0x3612
++#define OV9740_ANALOG_CTRL15		0x3615
++#define OV9740_ANALOG_CTRL20		0x3620
++#define OV9740_ANALOG_CTRL21		0x3621
++#define OV9740_ANALOG_CTRL22		0x3622
++#define OV9740_ANALOG_CTRL30		0x3630
++#define OV9740_ANALOG_CTRL31		0x3631
++#define OV9740_ANALOG_CTRL32		0x3632
++#define OV9740_ANALOG_CTRL33		0x3633
++
++/* Sensor Control */
++#define OV9740_SENSOR_CTRL03		0x3703
++#define OV9740_SENSOR_CTRL04		0x3704
++#define OV9740_SENSOR_CTRL05		0x3705
++#define OV9740_SENSOR_CTRL07		0x3707
++
++/* Timing Control */
++#define OV9740_TIMING_CTRL17		0x3817
++#define OV9740_TIMING_CTRL19		0x3819
++#define OV9740_TIMING_CTRL33		0x3833
++#define OV9740_TIMING_CTRL35		0x3835
++
++/* Banding Filter */
++#define OV9740_AEC_MAXEXPO_60_H		0x3a02
++#define OV9740_AEC_MAXEXPO_60_L		0x3a03
++#define OV9740_AEC_B50_STEP_HI		0x3a08
++#define OV9740_AEC_B50_STEP_LO		0x3a09
++#define OV9740_AEC_B60_STEP_HI		0x3a0a
++#define OV9740_AEC_B60_STEP_LO		0x3a0b
++#define OV9740_AEC_CTRL0D		0x3a0d
++#define OV9740_AEC_CTRL0E		0x3a0e
++#define OV9740_AEC_MAXEXPO_50_H		0x3a14
++#define OV9740_AEC_MAXEXPO_50_L		0x3a15
++
++/* AEC/AGC Control */
++#define OV9740_AEC_ENABLE		0x3503
++#define OV9740_GAIN_CEILING_01		0x3a18
++#define OV9740_GAIN_CEILING_02		0x3a19
++#define OV9740_AEC_HI_THRESHOLD		0x3a11
++#define OV9740_AEC_3A1A			0x3a1a
++#define OV9740_AEC_CTRL1B_WPT2		0x3a1b
++#define OV9740_AEC_CTRL0F_WPT		0x3a0f
++#define OV9740_AEC_CTRL10_BPT		0x3a10
++#define OV9740_AEC_CTRL1E_BPT2		0x3a1e
++#define OV9740_AEC_LO_THRESHOLD		0x3a1f
++
++/* BLC Control */
++#define OV9740_BLC_AUTO_ENABLE		0x4002
++#define OV9740_BLC_MODE			0x4005
++
++/* VFIFO */
++#define OV9740_VFIFO_READ_START_HI	0x4608
++#define OV9740_VFIFO_READ_START_LO	0x4609
++
++/* DVP Control */
++#define OV9740_DVP_VSYNC_CTRL02		0x4702
++#define OV9740_DVP_VSYNC_MODE		0x4704
++#define OV9740_DVP_VSYNC_CTRL06		0x4706
++
++/* PLL Setting */
++#define OV9740_PLL_MODE_CTRL01		0x3104
++#define OV9740_PRE_PLL_CLK_DIV		0x0305
++#define OV9740_PLL_MULTIPLIER		0x0307
++#define OV9740_VT_SYS_CLK_DIV		0x0303
++#define OV9740_VT_PIX_CLK_DIV		0x0301
++#define OV9740_PLL_CTRL3010		0x3010
++#define OV9740_VFIFO_CTRL00		0x460e
++
++/* ISP Control */
++#define OV9740_ISP_CTRL00		0x5000
++#define OV9740_ISP_CTRL01		0x5001
++#define OV9740_ISP_CTRL03		0x5003
++#define OV9740_ISP_CTRL05		0x5005
++#define OV9740_ISP_CTRL12		0x5012
++#define OV9740_ISP_CTRL19		0x5019
++#define OV9740_ISP_CTRL1A		0x501a
++#define OV9740_ISP_CTRL1E		0x501e
++#define OV9740_ISP_CTRL1F		0x501f
++#define OV9740_ISP_CTRL20		0x5020
++#define OV9740_ISP_CTRL21		0x5021
++
++/* AWB */
++#define OV9740_AWB_CTRL00		0x5180
++#define OV9740_AWB_CTRL01		0x5181
++#define OV9740_AWB_CTRL02		0x5182
++#define OV9740_AWB_CTRL03		0x5183
++#define OV9740_AWB_ADV_CTRL01		0x5184
++#define OV9740_AWB_ADV_CTRL02		0x5185
++#define OV9740_AWB_ADV_CTRL03		0x5186
++#define OV9740_AWB_ADV_CTRL04		0x5187
++#define OV9740_AWB_ADV_CTRL05		0x5188
++#define OV9740_AWB_ADV_CTRL06		0x5189
++#define OV9740_AWB_ADV_CTRL07		0x518a
++#define OV9740_AWB_ADV_CTRL08		0x518b
++#define OV9740_AWB_ADV_CTRL09		0x518c
++#define OV9740_AWB_ADV_CTRL10		0x518d
++#define OV9740_AWB_ADV_CTRL11		0x518e
++#define OV9740_AWB_CTRL0F		0x518f
++#define OV9740_AWB_CTRL10		0x5190
++#define OV9740_AWB_CTRL11		0x5191
++#define OV9740_AWB_CTRL12		0x5192
++#define OV9740_AWB_CTRL13		0x5193
++#define OV9740_AWB_CTRL14		0x5194
++
++/* MIPI Control */
++#define OV9740_MIPI_CTRL00		0x4800
++#define OV9740_MIPI_3837		0x3837
++#define OV9740_MIPI_CTRL01		0x4801
++#define OV9740_MIPI_CTRL03		0x4803
++#define OV9740_MIPI_CTRL05		0x4805
++#define OV9740_VFIFO_RD_CTRL		0x4601
++#define OV9740_MIPI_CTRL_3012		0x3012
++#define OV9740_SC_CMMM_MIPI_CTR		0x3014
++
++
++#define OV9740_MAX_WIDTH		1280
++#define OV9740_MAX_HEIGHT		720
++#define OV9740_XCLK_HZ			24000000
++
++/*
++ * PLL of the table below with a 24 MHz input: /3 x76 = 608 MHz, i.e. 608 Mbit/s
++ * on the single lane (link frequency 304 MHz). Only used to pick the D-PHY
++ * range of the receiver; overridable for bring-up.
++ */
++static unsigned int link_freq_mhz = 304;
++module_param(link_freq_mhz, uint, 0444);
++MODULE_PARM_DESC(link_freq_mhz, "CSI-2 link frequency reported to the receiver (MHz)");
++
++struct ov9740_reg {
++	u16 reg;
++	u8 val;
++};
++
++static const struct ov9740_reg ov9740_defaults[] = {
++	/* Software Reset */
++	{ OV9740_SOFTWARE_RESET,	0x01 },
++
++	/* Banding Filter */
++	{ OV9740_AEC_B50_STEP_HI,	0x00 },
++	{ OV9740_AEC_B50_STEP_LO,	0xe8 },
++	{ OV9740_AEC_CTRL0E,		0x03 },
++	{ OV9740_AEC_MAXEXPO_50_H,	0x15 },
++	{ OV9740_AEC_MAXEXPO_50_L,	0xc6 },
++	{ OV9740_AEC_B60_STEP_HI,	0x00 },
++	{ OV9740_AEC_B60_STEP_LO,	0xc0 },
++	{ OV9740_AEC_CTRL0D,		0x04 },
++	{ OV9740_AEC_MAXEXPO_60_H,	0x18 },
++	{ OV9740_AEC_MAXEXPO_60_L,	0x20 },
++
++	/* LC */
++	{ 0x5842, 0x02 }, { 0x5843, 0x5e }, { 0x5844, 0x04 }, { 0x5845, 0x32 },
++	{ 0x5846, 0x03 }, { 0x5847, 0x29 }, { 0x5848, 0x02 }, { 0x5849, 0xcc },
++
++	/* Un-documented OV9740 registers */
++	{ 0x5800, 0x29 }, { 0x5801, 0x25 }, { 0x5802, 0x20 }, { 0x5803, 0x21 },
++	{ 0x5804, 0x26 }, { 0x5805, 0x2e }, { 0x5806, 0x11 }, { 0x5807, 0x0c },
++	{ 0x5808, 0x09 }, { 0x5809, 0x0a }, { 0x580a, 0x0e }, { 0x580b, 0x16 },
++	{ 0x580c, 0x06 }, { 0x580d, 0x02 }, { 0x580e, 0x00 }, { 0x580f, 0x00 },
++	{ 0x5810, 0x04 }, { 0x5811, 0x0a }, { 0x5812, 0x05 }, { 0x5813, 0x02 },
++	{ 0x5814, 0x00 }, { 0x5815, 0x00 }, { 0x5816, 0x03 }, { 0x5817, 0x09 },
++	{ 0x5818, 0x0f }, { 0x5819, 0x0a }, { 0x581a, 0x07 }, { 0x581b, 0x08 },
++	{ 0x581c, 0x0b }, { 0x581d, 0x14 }, { 0x581e, 0x28 }, { 0x581f, 0x23 },
++	{ 0x5820, 0x1d }, { 0x5821, 0x1e }, { 0x5822, 0x24 }, { 0x5823, 0x2a },
++	{ 0x5824, 0x4f }, { 0x5825, 0x6f }, { 0x5826, 0x5f }, { 0x5827, 0x7f },
++	{ 0x5828, 0x9f }, { 0x5829, 0x5f }, { 0x582a, 0x8f }, { 0x582b, 0x9e },
++	{ 0x582c, 0x8f }, { 0x582d, 0x9f }, { 0x582e, 0x4f }, { 0x582f, 0x87 },
++	{ 0x5830, 0x86 }, { 0x5831, 0x97 }, { 0x5832, 0xae }, { 0x5833, 0x3f },
++	{ 0x5834, 0x8e }, { 0x5835, 0x7c }, { 0x5836, 0x7e }, { 0x5837, 0xaf },
++	{ 0x5838, 0x8f }, { 0x5839, 0x8f }, { 0x583a, 0x9f }, { 0x583b, 0x7f },
++	{ 0x583c, 0x5f },
++
++	/* Y Gamma */
++	{ 0x5480, 0x07 }, { 0x5481, 0x18 }, { 0x5482, 0x2c }, { 0x5483, 0x4e },
++	{ 0x5484, 0x5e }, { 0x5485, 0x6b }, { 0x5486, 0x77 }, { 0x5487, 0x82 },
++	{ 0x5488, 0x8c }, { 0x5489, 0x95 }, { 0x548a, 0xa4 }, { 0x548b, 0xb1 },
++	{ 0x548c, 0xc6 }, { 0x548d, 0xd8 }, { 0x548e, 0xe9 },
++
++	/* UV Gamma */
++	{ 0x5490, 0x0f }, { 0x5491, 0xff }, { 0x5492, 0x0d }, { 0x5493, 0x05 },
++	{ 0x5494, 0x07 }, { 0x5495, 0x1a }, { 0x5496, 0x04 }, { 0x5497, 0x01 },
++	{ 0x5498, 0x03 }, { 0x5499, 0x53 }, { 0x549a, 0x02 }, { 0x549b, 0xeb },
++	{ 0x549c, 0x02 }, { 0x549d, 0xa0 }, { 0x549e, 0x02 }, { 0x549f, 0x67 },
++	{ 0x54a0, 0x02 }, { 0x54a1, 0x3b }, { 0x54a2, 0x02 }, { 0x54a3, 0x18 },
++	{ 0x54a4, 0x01 }, { 0x54a5, 0xe7 }, { 0x54a6, 0x01 }, { 0x54a7, 0xc3 },
++	{ 0x54a8, 0x01 }, { 0x54a9, 0x94 }, { 0x54aa, 0x01 }, { 0x54ab, 0x72 },
++	{ 0x54ac, 0x01 }, { 0x54ad, 0x57 },
++
++	/* AWB */
++	{ OV9740_AWB_CTRL00,		0xf0 },
++	{ OV9740_AWB_CTRL01,		0x00 },
++	{ OV9740_AWB_CTRL02,		0x41 },
++	{ OV9740_AWB_CTRL03,		0x42 },
++	{ OV9740_AWB_ADV_CTRL01,	0x8a },
++	{ OV9740_AWB_ADV_CTRL02,	0x61 },
++	{ OV9740_AWB_ADV_CTRL03,	0xce },
++	{ OV9740_AWB_ADV_CTRL04,	0xa8 },
++	{ OV9740_AWB_ADV_CTRL05,	0x17 },
++	{ OV9740_AWB_ADV_CTRL06,	0x1f },
++	{ OV9740_AWB_ADV_CTRL07,	0x27 },
++	{ OV9740_AWB_ADV_CTRL08,	0x41 },
++	{ OV9740_AWB_ADV_CTRL09,	0x34 },
++	{ OV9740_AWB_ADV_CTRL10,	0xf0 },
++	{ OV9740_AWB_ADV_CTRL11,	0x10 },
++	{ OV9740_AWB_CTRL0F,		0xff },
++	{ OV9740_AWB_CTRL10,		0x00 },
++	{ OV9740_AWB_CTRL11,		0xff },
++	{ OV9740_AWB_CTRL12,		0x00 },
++	{ OV9740_AWB_CTRL13,		0xff },
++	{ OV9740_AWB_CTRL14,		0x00 },
++
++	/* CIP */
++	{ 0x530d, 0x12 },
++
++	/* CMX */
++	{ 0x5380, 0x01 }, { 0x5381, 0x00 }, { 0x5382, 0x00 }, { 0x5383, 0x17 },
++	{ 0x5384, 0x00 }, { 0x5385, 0x01 }, { 0x5386, 0x00 }, { 0x5387, 0x00 },
++	{ 0x5388, 0x00 }, { 0x5389, 0xe0 }, { 0x538a, 0x00 }, { 0x538b, 0x20 },
++	{ 0x538c, 0x00 }, { 0x538d, 0x00 }, { 0x538e, 0x00 }, { 0x538f, 0x16 },
++	{ 0x5390, 0x00 }, { 0x5391, 0x9c }, { 0x5392, 0x00 }, { 0x5393, 0xa0 },
++	{ 0x5394, 0x18 },
++
++	/* 50/60 Detection */
++	{ 0x3c0a, 0x9c }, { 0x3c0b, 0x3f },
++
++	/* Output Select */
++	{ OV9740_IO_OUTPUT_SEL01,	0x00 },
++	{ OV9740_IO_OUTPUT_SEL02,	0x00 },
++	{ OV9740_IO_CREL00,		0x00 },
++	{ OV9740_IO_CREL01,		0x00 },
++	{ OV9740_IO_CREL02,		0x00 },
++
++	/* AWB Control */
++	{ OV9740_AWB_MANUAL_CTRL,	0x00 },
++
++	/* Analog Control */
++	{ OV9740_ANALOG_CTRL03,		0xaa },
++	{ OV9740_ANALOG_CTRL32,		0x2f },
++	{ OV9740_ANALOG_CTRL20,		0x66 },
++	{ OV9740_ANALOG_CTRL21,		0xc0 },
++	{ OV9740_ANALOG_CTRL31,		0x52 },
++	{ OV9740_ANALOG_CTRL33,		0x50 },
++	{ OV9740_ANALOG_CTRL30,		0xca },
++	{ OV9740_ANALOG_CTRL04,		0x0c },
++	{ OV9740_ANALOG_CTRL01,		0x40 },
++	{ OV9740_ANALOG_CTRL02,		0x16 },
++	{ OV9740_ANALOG_CTRL10,		0xa1 },
++	{ OV9740_ANALOG_CTRL12,		0x24 },
++	{ OV9740_ANALOG_CTRL22,		0x9f },
++	{ OV9740_ANALOG_CTRL15,		0xf0 },
++
++	/* Sensor Control */
++	{ OV9740_SENSOR_CTRL03,		0x42 },
++	{ OV9740_SENSOR_CTRL04,		0x10 },
++	{ OV9740_SENSOR_CTRL05,		0x45 },
++	{ OV9740_SENSOR_CTRL07,		0x14 },
++
++	/* Timing Control */
++	{ OV9740_TIMING_CTRL33,		0x04 },
++	{ OV9740_TIMING_CTRL35,		0x02 },
++	{ OV9740_TIMING_CTRL19,		0x6e },
++	{ OV9740_TIMING_CTRL17,		0x94 },
++
++	/* AEC/AGC Control */
++	{ OV9740_AEC_ENABLE,		0x10 },
++	{ OV9740_GAIN_CEILING_01,	0x00 },
++	{ OV9740_GAIN_CEILING_02,	0x7f },
++	{ OV9740_AEC_HI_THRESHOLD,	0xa0 },
++	{ OV9740_AEC_3A1A,		0x05 },
++	{ OV9740_AEC_CTRL1B_WPT2,	0x50 },
++	{ OV9740_AEC_CTRL0F_WPT,	0x50 },
++	{ OV9740_AEC_CTRL10_BPT,	0x4c },
++	{ OV9740_AEC_CTRL1E_BPT2,	0x4c },
++	{ OV9740_AEC_LO_THRESHOLD,	0x26 },
++
++	/* BLC Control */
++	{ OV9740_BLC_AUTO_ENABLE,	0x45 },
++	{ OV9740_BLC_MODE,		0x18 },
++
++	/* DVP Control */
++	{ OV9740_DVP_VSYNC_CTRL02,	0x04 },
++	{ OV9740_DVP_VSYNC_MODE,	0x00 },
++	{ OV9740_DVP_VSYNC_CTRL06,	0x08 },
++
++	/* PLL Setting */
++	{ OV9740_PLL_MODE_CTRL01,	0x20 },
++	{ OV9740_PRE_PLL_CLK_DIV,	0x03 },
++	{ OV9740_PLL_MULTIPLIER,	0x4c },
++	{ OV9740_VT_SYS_CLK_DIV,	0x01 },
++	{ OV9740_VT_PIX_CLK_DIV,	0x08 },
++	{ OV9740_PLL_CTRL3010,		0x01 },
++	{ OV9740_VFIFO_CTRL00,		0x82 },
++
++	/* Timing Setting */
++	/* VTS */
++	{ OV9740_FRM_LENGTH_LN_HI,	0x03 },
++	{ OV9740_FRM_LENGTH_LN_LO,	0x07 },
++	/* HTS */
++	{ OV9740_LN_LENGTH_PCK_HI,	0x06 },
++	{ OV9740_LN_LENGTH_PCK_LO,	0x62 },
++
++	/* MIPI Control */
++	{ OV9740_MIPI_CTRL00,		0x44 }, /* 0x64 for discontinuous clk */
++	{ OV9740_MIPI_3837,		0x01 },
++	{ OV9740_MIPI_CTRL01,		0x0f },
++	{ OV9740_MIPI_CTRL03,		0x05 },
++	{ OV9740_MIPI_CTRL05,		0x10 },
++	{ OV9740_VFIFO_RD_CTRL,		0x16 },
++	{ OV9740_MIPI_CTRL_3012,	0x70 },
++	{ OV9740_SC_CMMM_MIPI_CTR,	0x01 },
++
++	/* YUYV order */
++	{ OV9740_ISP_CTRL19,		0x02 },
++};
++
++
++static const char * const ov9740_supply_names[] = { "DOVDD", "AVDD", "DVDD" };
++
++struct ov9740 {
++	struct i2c_client *client;
++	struct v4l2_subdev sd;
++	struct media_pad pad;
++	struct v4l2_ctrl_handler ctrls;
++	struct v4l2_ctrl *hflip, *vflip;
++	struct clk *xclk;
++	struct gpio_desc *pwdn, *reset;
++	struct regulator_bulk_data supplies[ARRAY_SIZE(ov9740_supply_names)];
++	struct mutex lock;		/* format, power and streaming state */
++	struct v4l2_mbus_framefmt fmt;	/* active format */
++	s64 link_freq;
++	bool powered;
++};
++
++static inline struct ov9740 *to_ov9740(struct v4l2_subdev *sd)
++{
++	return container_of(sd, struct ov9740, sd);
++}
++
++static int ov9740_read(struct ov9740 *s, u16 reg, u8 *val)
++{
++	u8 buf[2] = { reg >> 8, reg & 0xff };
++	struct i2c_msg msg[] = {
++		{ .addr = s->client->addr, .flags = 0, .len = 2, .buf = buf },
++		{ .addr = s->client->addr, .flags = I2C_M_RD, .len = 1, .buf = val },
++	};
++	int ret = i2c_transfer(s->client->adapter, msg, 2);
++
++	if (ret != 2) {
++		dev_err(&s->client->dev, "read 0x%04x failed (%d)\n", reg, ret);
++		return ret < 0 ? ret : -EIO;
++	}
++	return 0;
++}
++
++static int ov9740_write(struct ov9740 *s, u16 reg, u8 val)
++{
++	u8 buf[3] = { reg >> 8, reg & 0xff, val };
++	int ret = i2c_master_send(s->client, buf, 3);
++
++	if (ret != 3) {
++		dev_err(&s->client->dev, "write 0x%04x failed (%d)\n", reg, ret);
++		return ret < 0 ? ret : -EIO;
++	}
++	return 0;
++}
++
++static int ov9740_write_array(struct ov9740 *s, const struct ov9740_reg *r, int n)
++{
++	for (int i = 0; i < n; i++) {
++		int ret = ov9740_write(s, r[i].reg, r[i].val);
++
++		if (ret)
++			return ret;
++		if (r[i].reg == OV9740_SOFTWARE_RESET)
++			usleep_range(1000, 2000);
++	}
++	return 0;
++}
++
++static int ov9740_set_res(struct ov9740 *s, u32 width, u32 height)
++{
++	u32 x_start;
++	u32 y_start;
++	u32 x_end;
++	u32 y_end;
++	bool scaling = false;
++	u32 scale_input_x;
++	u32 scale_input_y;
++	int ret;
++
++	if ((width != OV9740_MAX_WIDTH) || (height != OV9740_MAX_HEIGHT))
++		scaling = true;
++
++	/*
++	 * Try to use as much of the sensor area as possible when supporting
++	 * smaller resolutions.  Depending on the aspect ratio of the
++	 * chosen resolution, we can either use the full width of the sensor,
++	 * or the full height of the sensor (or both if the aspect ratio is
++	 * the same as 1280x720.
++	 */
++	if ((OV9740_MAX_WIDTH * height) > (OV9740_MAX_HEIGHT * width)) {
++		scale_input_x = (OV9740_MAX_HEIGHT * width) / height;
++		scale_input_y = OV9740_MAX_HEIGHT;
++	} else {
++		scale_input_x = OV9740_MAX_WIDTH;
++		scale_input_y = (OV9740_MAX_WIDTH * height) / width;
++	}
++
++	/* These describe the area of the sensor to use. */
++	x_start = (OV9740_MAX_WIDTH - scale_input_x) / 2;
++	y_start = (OV9740_MAX_HEIGHT - scale_input_y) / 2;
++	x_end = x_start + scale_input_x - 1;
++	y_end = y_start + scale_input_y - 1;
++
++	ret = ov9740_write(s, OV9740_X_ADDR_START_HI, x_start >> 8);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_X_ADDR_START_LO, x_start & 0xff);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_Y_ADDR_START_HI, y_start >> 8);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_Y_ADDR_START_LO, y_start & 0xff);
++	if (ret)
++		goto done;
++
++	ret = ov9740_write(s, OV9740_X_ADDR_END_HI, x_end >> 8);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_X_ADDR_END_LO, x_end & 0xff);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_Y_ADDR_END_HI, y_end >> 8);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_Y_ADDR_END_LO, y_end & 0xff);
++	if (ret)
++		goto done;
++
++	ret = ov9740_write(s, OV9740_X_OUTPUT_SIZE_HI, width >> 8);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_X_OUTPUT_SIZE_LO, width & 0xff);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_Y_OUTPUT_SIZE_HI, height >> 8);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_Y_OUTPUT_SIZE_LO, height & 0xff);
++	if (ret)
++		goto done;
++
++	ret = ov9740_write(s, OV9740_ISP_CTRL1E, scale_input_x >> 8);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_ISP_CTRL1F, scale_input_x & 0xff);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_ISP_CTRL20, scale_input_y >> 8);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_ISP_CTRL21, scale_input_y & 0xff);
++	if (ret)
++		goto done;
++
++	ret = ov9740_write(s, OV9740_VFIFO_READ_START_HI,
++			       (scale_input_x - width) >> 8);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_VFIFO_READ_START_LO,
++			       (scale_input_x - width) & 0xff);
++	if (ret)
++		goto done;
++
++	ret = ov9740_write(s, OV9740_ISP_CTRL00, 0xff);
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_ISP_CTRL01, 0xef |
++							  (scaling << 4));
++	if (ret)
++		goto done;
++	ret = ov9740_write(s, OV9740_ISP_CTRL03, 0xff);
++
++done:
++	return ret;
++}
++
++static int ov9740_power_on(struct ov9740 *s)
++{
++	int ret;
++
++	if (s->powered)
++		return 0;
++	ret = regulator_bulk_enable(ARRAY_SIZE(s->supplies), s->supplies);
++	if (ret)
++		return ret;
++	ret = clk_prepare_enable(s->xclk);
++	if (ret) {
++		regulator_bulk_disable(ARRAY_SIZE(s->supplies), s->supplies);
++		return ret;
++	}
++	gpiod_set_value_cansleep(s->reset, 1);
++	gpiod_set_value_cansleep(s->pwdn, 0);
++	usleep_range(1000, 2000);
++	gpiod_set_value_cansleep(s->reset, 0);
++	msleep(20);
++	s->powered = true;
++	return 0;
++}
++
++static void ov9740_power_off(struct ov9740 *s)
++{
++	if (!s->powered)
++		return;
++	gpiod_set_value_cansleep(s->pwdn, 1);
++	gpiod_set_value_cansleep(s->reset, 1);
++	clk_disable_unprepare(s->xclk);
++	regulator_bulk_disable(ARRAY_SIZE(s->supplies), s->supplies);
++	s->powered = false;
++}
++
++/* full register setup, sensor left in standby (lanes in LP-11) */
++static int ov9740_setup(struct ov9740 *s)
++{
++	u8 ort = (s->vflip->val ? 0x2 : 0) | (s->hflip->val ? 0x1 : 0);
++	int ret;
++
++	ret = ov9740_write_array(s, ov9740_defaults, ARRAY_SIZE(ov9740_defaults));
++	if (!ret)
++		ret = ov9740_set_res(s, s->fmt.width, s->fmt.height);
++	if (!ret)
++		ret = ov9740_write(s, OV9740_IMAGE_ORT, ort);
++	return ret;
++}
++
++static void ov9740_fill_fmt(struct v4l2_mbus_framefmt *f, u32 w, u32 h)
++{
++	w = clamp_t(u32, ALIGN(w, 4), 16, OV9740_MAX_WIDTH);
++	h = clamp_t(u32, h, 16, OV9740_MAX_HEIGHT);
++	memset(f, 0, sizeof(*f));
++	f->width = w;
++	f->height = h;
++	f->code = MEDIA_BUS_FMT_YUYV8_2X8;
++	f->field = V4L2_FIELD_NONE;
++	f->colorspace = V4L2_COLORSPACE_SRGB;
++	f->ycbcr_enc = V4L2_YCBCR_ENC_601;
++	f->quantization = V4L2_QUANTIZATION_FULL_RANGE;
++	f->xfer_func = V4L2_XFER_FUNC_SRGB;
++}
++
++/* ---- subdev ops ---------------------------------------------------------- */
++
++static int ov9740_enum_mbus_code(struct v4l2_subdev *sd, struct v4l2_subdev_state *st,
++				 struct v4l2_subdev_mbus_code_enum *code)
++{
++	if (code->pad || code->index)
++		return -EINVAL;
++	code->code = MEDIA_BUS_FMT_YUYV8_2X8;
++	return 0;
++}
++
++static int ov9740_enum_frame_size(struct v4l2_subdev *sd, struct v4l2_subdev_state *st,
++				  struct v4l2_subdev_frame_size_enum *fse)
++{
++	if (fse->pad || fse->index || fse->code != MEDIA_BUS_FMT_YUYV8_2X8)
++		return -EINVAL;
++	fse->min_width = 16;
++	fse->min_height = 16;
++	fse->max_width = OV9740_MAX_WIDTH;
++	fse->max_height = OV9740_MAX_HEIGHT;
++	return 0;
++}
++
++static int ov9740_get_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_state *st,
++			  struct v4l2_subdev_format *fmt)
++{
++	struct ov9740 *s = to_ov9740(sd);
++
++	if (fmt->pad)
++		return -EINVAL;
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++		fmt->format = *v4l2_subdev_state_get_format(st, 0);
++		return 0;
++	}
++	mutex_lock(&s->lock);
++	fmt->format = s->fmt;
++	mutex_unlock(&s->lock);
++	return 0;
++}
++
++static int ov9740_set_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_state *st,
++			  struct v4l2_subdev_format *fmt)
++{
++	struct ov9740 *s = to_ov9740(sd);
++
++	if (fmt->pad)
++		return -EINVAL;
++	ov9740_fill_fmt(&fmt->format, fmt->format.width, fmt->format.height);
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++		*v4l2_subdev_state_get_format(st, 0) = fmt->format;
++		return 0;
++	}
++	mutex_lock(&s->lock);
++	s->fmt = fmt->format;
++	mutex_unlock(&s->lock);
++	return 0;
++}
++
++static int ov9740_init_state(struct v4l2_subdev *sd, struct v4l2_subdev_state *st)
++{
++	ov9740_fill_fmt(v4l2_subdev_state_get_format(st, 0),
++			OV9740_MAX_WIDTH, OV9740_MAX_HEIGHT);
++	return 0;
++}
++
++static int ov9740_pre_streamon(struct v4l2_subdev *sd, u32 flags)
++{
++	struct ov9740 *s = to_ov9740(sd);
++	int ret;
++
++	mutex_lock(&s->lock);
++	ret = ov9740_power_on(s);
++	if (!ret)
++		ret = ov9740_setup(s);
++	if (ret)
++		ov9740_power_off(s);
++	mutex_unlock(&s->lock);
++	return ret;
++}
++
++static int ov9740_post_streamoff(struct v4l2_subdev *sd)
++{
++	struct ov9740 *s = to_ov9740(sd);
++
++	mutex_lock(&s->lock);
++	ov9740_power_off(s);
++	mutex_unlock(&s->lock);
++	return 0;
++}
++
++static int ov9740_s_stream(struct v4l2_subdev *sd, int enable)
++{
++	struct ov9740 *s = to_ov9740(sd);
++	int ret;
++
++	mutex_lock(&s->lock);
++	if (enable) {
++		/* receivers that do not call pre_streamon */
++		if (!s->powered) {
++			ret = ov9740_power_on(s);
++			if (!ret)
++				ret = ov9740_setup(s);
++			if (ret)
++				goto out;
++		}
++		ret = ov9740_write(s, OV9740_MODE_SELECT, 0x01);
++		goto out;
++	}
++	ret = ov9740_write(s, OV9740_MODE_SELECT, 0x00);
++out:
++	mutex_unlock(&s->lock);
++	return ret;
++}
++
++static int ov9740_s_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct ov9740 *s = container_of(ctrl->handler, struct ov9740, ctrls);
++	u8 ort;
++
++	switch (ctrl->id) {
++	case V4L2_CID_HFLIP:
++	case V4L2_CID_VFLIP:
++		if (!s->powered)	/* applied by ov9740_setup() */
++			return 0;
++		ort = (s->vflip->val ? 0x2 : 0) | (s->hflip->val ? 0x1 : 0);
++		return ov9740_write(s, OV9740_IMAGE_ORT, ort);
++	}
++	return 0;
++}
++
++static const struct v4l2_ctrl_ops ov9740_ctrl_ops = { .s_ctrl = ov9740_s_ctrl };
++
++static const struct v4l2_subdev_video_ops ov9740_video_ops = {
++	.s_stream = ov9740_s_stream,
++	.pre_streamon = ov9740_pre_streamon,
++	.post_streamoff = ov9740_post_streamoff,
++};
++
++static const struct v4l2_subdev_pad_ops ov9740_pad_ops = {
++	.enum_mbus_code = ov9740_enum_mbus_code,
++	.enum_frame_size = ov9740_enum_frame_size,
++	.get_fmt = ov9740_get_fmt,
++	.set_fmt = ov9740_set_fmt,
++};
++
++static const struct v4l2_subdev_ops ov9740_subdev_ops = {
++	.video = &ov9740_video_ops,
++	.pad = &ov9740_pad_ops,
++};
++
++static const struct v4l2_subdev_internal_ops ov9740_internal_ops = {
++	.init_state = ov9740_init_state,
++};
++
++/* ---- probe ---------------------------------------------------------------- */
++
++static int ov9740_check_endpoint(struct device *dev)
++{
++	struct v4l2_fwnode_endpoint ep = { .bus_type = V4L2_MBUS_CSI2_DPHY };
++	struct fwnode_handle *fw;
++	int ret;
++
++	fw = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
++	if (!fw)
++		return dev_err_probe(dev, -EINVAL, "no endpoint\n");
++	ret = v4l2_fwnode_endpoint_parse(fw, &ep);
++	fwnode_handle_put(fw);
++	if (ret)
++		return dev_err_probe(dev, ret, "bad endpoint\n");
++	if (ep.bus.mipi_csi2.num_data_lanes != 1)
++		return dev_err_probe(dev, -EINVAL, "one data lane expected\n");
++	return 0;
++}
++
++static int ov9740_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	const s64 *menu;
++	struct ov9740 *s;
++	u8 hi, lo, rev, man;
++	int ret;
++
++	s = devm_kzalloc(dev, sizeof(*s), GFP_KERNEL);
++	if (!s)
++		return -ENOMEM;
++	s->client = client;
++	mutex_init(&s->lock);
++
++	ret = ov9740_check_endpoint(dev);
++	if (ret)
++		return ret;
++
++	s->xclk = devm_clk_get(dev, NULL);
++	if (IS_ERR(s->xclk))
++		return dev_err_probe(dev, PTR_ERR(s->xclk), "no clock\n");
++	ret = clk_set_rate(s->xclk, OV9740_XCLK_HZ);
++	if (ret)
++		dev_warn(dev, "cannot set the clock to 24 MHz (%d)\n", ret);
++	dev_info(dev, "input clock %lu Hz\n", clk_get_rate(s->xclk));
++
++	for (int i = 0; i < ARRAY_SIZE(s->supplies); i++)
++		s->supplies[i].supply = ov9740_supply_names[i];
++	ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(s->supplies), s->supplies);
++	if (ret)
++		return dev_err_probe(dev, ret, "no supplies\n");
++
++	s->pwdn = devm_gpiod_get_optional(dev, "powerdown", GPIOD_OUT_HIGH);
++	if (IS_ERR(s->pwdn))
++		return PTR_ERR(s->pwdn);
++	s->reset = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(s->reset))
++		return PTR_ERR(s->reset);
++
++	ret = ov9740_power_on(s);
++	if (ret)
++		return dev_err_probe(dev, ret, "power on failed\n");
++	ret = ov9740_read(s, OV9740_MODEL_ID_HI, &hi);
++	if (!ret)
++		ret = ov9740_read(s, OV9740_MODEL_ID_LO, &lo);
++	if (!ret)
++		ret = ov9740_read(s, OV9740_REVISION_NUMBER, &rev);
++	if (!ret)
++		ret = ov9740_read(s, OV9740_MANUFACTURER_ID, &man);
++	ov9740_power_off(s);
++	if (ret)
++		return dev_err_probe(dev, ret, "sensor not responding\n");
++	if (((hi << 8) | lo) != 0x9740)
++		return dev_err_probe(dev, -ENODEV, "unexpected model 0x%02x%02x\n", hi, lo);
++	dev_info(dev, "OV9740 revision 0x%02x, manufacturer 0x%02x\n", rev, man);
++
++	ov9740_fill_fmt(&s->fmt, OV9740_MAX_WIDTH, OV9740_MAX_HEIGHT);
++	s->link_freq = (s64)link_freq_mhz * 1000000;
++	menu = &s->link_freq;
++
++	v4l2_ctrl_handler_init(&s->ctrls, 4);
++	s->hflip = v4l2_ctrl_new_std(&s->ctrls, &ov9740_ctrl_ops, V4L2_CID_HFLIP, 0, 1, 1, 0);
++	s->vflip = v4l2_ctrl_new_std(&s->ctrls, &ov9740_ctrl_ops, V4L2_CID_VFLIP, 0, 1, 1, 0);
++	v4l2_ctrl_new_int_menu(&s->ctrls, NULL, V4L2_CID_LINK_FREQ, 0, 0, menu);
++	v4l2_ctrl_new_std(&s->ctrls, NULL, V4L2_CID_PIXEL_RATE, 1, INT_MAX, 1,
++			  s->link_freq * 2 / 16);
++	if (s->ctrls.error) {
++		ret = s->ctrls.error;
++		goto err_ctrls;
++	}
++
++	v4l2_i2c_subdev_init(&s->sd, client, &ov9740_subdev_ops);
++	s->sd.internal_ops = &ov9740_internal_ops;
++	s->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
++	s->sd.ctrl_handler = &s->ctrls;
++	s->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
++	s->pad.flags = MEDIA_PAD_FL_SOURCE;
++	ret = media_entity_pads_init(&s->sd.entity, 1, &s->pad);
++	if (ret)
++		goto err_ctrls;
++	s->sd.state_lock = s->ctrls.lock;
++	ret = v4l2_subdev_init_finalize(&s->sd);
++	if (ret)
++		goto err_entity;
++	ret = v4l2_async_register_subdev_sensor(&s->sd);
++	if (ret)
++		goto err_state;
++	return 0;
++
++err_state:
++	v4l2_subdev_cleanup(&s->sd);
++err_entity:
++	media_entity_cleanup(&s->sd.entity);
++err_ctrls:
++	v4l2_ctrl_handler_free(&s->ctrls);
++	return ret;
++}
++
++static void ov9740_remove(struct i2c_client *client)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ov9740 *s = to_ov9740(sd);
++
++	v4l2_async_unregister_subdev(sd);
++	v4l2_subdev_cleanup(sd);
++	media_entity_cleanup(&sd->entity);
++	v4l2_ctrl_handler_free(&s->ctrls);
++	ov9740_power_off(s);
++}
++
++static const struct of_device_id ov9740_of_match[] = {
++	{ .compatible = "ovti,ov9740" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, ov9740_of_match);
++
++static struct i2c_driver ov9740_driver = {
++	.driver = {
++		.name = "ov9740",
++		.of_match_table = ov9740_of_match,
++	},
++	.probe = ov9740_probe,
++	.remove = ov9740_remove,
++};
++module_i2c_driver(ov9740_driver);
++
++MODULE_DESCRIPTION("OmniVision OV9740 MIPI CSI-2 sensor driver");
++MODULE_AUTHOR("Andrew Chew (original soc_camera driver)");
++MODULE_LICENSE("GPL");

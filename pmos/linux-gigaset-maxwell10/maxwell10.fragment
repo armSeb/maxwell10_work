@@ -160,3 +160,6 @@ CONFIG_RFKILL_GPIO=y
 
 # Audio DVF99 (TDM sur SSI2) : lien PCM 16 kHz mono (patch 0003)
 CONFIG_SND_SOC_DVF9919=y
+
+# Caméra OV9740 (patch 0004), en module pour pouvoir changer link_freq_mhz
+CONFIG_VIDEO_OV9740=m
