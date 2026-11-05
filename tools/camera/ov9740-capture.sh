@@ -16,11 +16,12 @@ run media-ctl -l "'$cam':0 -> 'imx6-mipi-csi2':0[1]"
 run media-ctl -l "'imx6-mipi-csi2':1 -> 'ipu1_csi0_mux':0[1]"
 run media-ctl -l "'ipu1_csi0_mux':2 -> 'ipu1_csi0':0[1]"
 run media-ctl -l "'ipu1_csi0':2 -> 'ipu1_csi0 capture':0[1]"
-fmt="YUYV8_2X8/${w}x${h} field:none"
+# le capteur sort de l'UYVY (tables du pilote Android, 0x4300 = 0x32) ; tailles : 1280x720, 640x480
+fmt="UYVY8_2X8/${w}x${h} field:none"
 run media-ctl -V "'$cam':0 [fmt:$fmt]"
 run media-ctl -V "'imx6-mipi-csi2':1 [fmt:$fmt]"
 run media-ctl -V "'ipu1_csi0_mux':2 [fmt:$fmt]"
-# la sortie IDMAC du CSI de l'IPU n'accepte pas YUYV8_2X8 : AYUV32, reconverti en YUYV à la capture
+# la sortie IDMAC du CSI de l'IPU n'accepte pas UYVY8_2X8 : AYUV32, reconverti en YUYV à la capture
 run media-ctl -V "'ipu1_csi0':2 [fmt:AYUV32/${w}x${h} field:none]"
 dev=$(media-ctl -e 'ipu1_csi0 capture')
 echo "nœud vidéo : $dev"
