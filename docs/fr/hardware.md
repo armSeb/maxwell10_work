@@ -41,7 +41,7 @@ mainline. Carte observée : `max10`, révision matérielle 9.
 | DECT + audio | **DSPG DVF9919** | UART3 (`ttymxc2`), TDM ↔ SSI2 par l'AUDMUX (port interne 2 ↔ port externe 4), reset GPIO4_IO22 | démon `dvf99` + patch ASoC 0003 | ✅ (voir [audio-dect.md](audio-dect.md)) |
 | Caméra | OmniVision **OV9740**, MIPI CSI-2 1 voie | i2c1 @ 0x10, PWDN GPIO5_IO24, reset GPIO5_IO23, LED GPIO1_IO5 (active basse) | ov9740 (patch 0004) + imx-media | ✅ (voir [camera.md](camera.md)) |
 | GPU | Vivante GC2000 / GC320 / GC355 | — | etnaviv (OpenGL ES 2.0) | ✅ |
-| VPU | CODA960 | — | coda, firmware 3.1.1 importé d'Android | ✅ décodage et encodage H.264/MPEG-4/JPEG (`v4l2h264dec`…) |
+| VPU | CODA960 | — | coda, firmware 3.1.1 importé d'Android | 🧪 firmware chargé, nœuds du codec présents (`v4l2h264dec`…) ; décodage pas testé |
 | Ventilateur | GPIO4_IO23 | — | gpio-fan sur la zone thermique, patch 0002 | ✅ |
 | USB OTG | mini-USB derrière le cache gauche du socle | usbotg | ci_hdrc (gadget) | ✅ |
 | USB hôte | hub SMSC USB2512, 2 × type A | usbh1 | ci_hdrc | 🧪 |
