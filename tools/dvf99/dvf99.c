@@ -1062,7 +1062,8 @@ static volatile sig_atomic_t stop_req;
 static int tweeter_pct = 50;		/* -X : niveau du tweeter en % (écrêtage des aigus à 100) */
 static int audio_on;			/* -A */
 static int audio_nomic;			/* -M : pas de capture (micro du combiné) */
-static int audio_probe = -1;		/* -D N : diagnostic, haut-parleur sur la paire de voies N seule */
+static int audio_probe = -1;
+static volatile int cap_peak[6];	/* crêtes de capture, remises à zéro par mictest */		/* -D N : diagnostic, haut-parleur sur la paire de voies N seule */
 
 static int aud_card(void)
 {
@@ -1281,6 +1282,7 @@ static void *aud_capture(void *arg)
 		for (int i = 0; i < AUD_FR * AUD_CH; i++) {
 			int v = buf[i] < 0 ? -buf[i] : buf[i];
 			if (v > peak[i % AUD_CH]) peak[i % AUD_CH] = v;
+			if (v > cap_peak[i % AUD_CH]) cap_peak[i % AUD_CH] = v;
 		}
 		if (now() > stat) {
 			out("audio : capture : %lu périodes, crêtes voies 0..5 : %d %d %d %d %d %d\n", periods,
@@ -1570,6 +1572,70 @@ static int mode_param(int fd, struct decoder *d, int argc, char **argv)
 	return 0;
 }
 
+/* dvf99 -A mictest : essaie chaque entrée possible du micro de façade vers
+ * l'ADC0, dans une seule session (pas de redémarrage de la base), et mesure les
+ * crêtes reçues sur les 6 voies : silence 8 s puis parole 8 s. Sans canaux de
+ * haut-parleur, les slots 0..3 sont libres. */
+static int mode_mictest(int fd, struct decoder *d)
+{
+	static const int srcs[] = { 15, 16, 9, 10, 11 };
+	static const unsigned masks[] = { 0x000F, 0x00F0 };
+	if (do_init(fd, d)) return 1;
+	{
+		uint8_t b[16]; unsigned n;
+		int q = quiet; quiet = 1;
+		for (uint32_t c = 0xF0; c <= 0xF3; c++) {
+			n = ie_media_channel(b, 0, c, 0);
+			send_msg(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n);
+			read_for(fd, d, 0.2);
+		}
+		quiet = q;
+	}
+	audio_on = 1; audio_start();
+	read_for(fd, d, 3.0);
+	for (unsigned m = 0; m < sizeof masks / sizeof *masks; m++)
+	for (unsigned i = 0; i < sizeof srcs / sizeof *srcs; i++) {
+		int src = srcs[i];
+		uint32_t ch;
+		out("\n=== entrée %d, slots 0x%04x ===\n", src, masks[m]);
+		if (afe_alloc(fd, d, &ch, 0)) { read_for(fd, d, 1.0); continue; }
+		int pre1 = -1, pre2 = -1, bias = -1;
+		if (src == 9) { pre1 = AFE_AMP_DIFFIN0; bias = AFE_MIC0; }
+		else if (src == 10) { pre1 = AFE_AMP_DIFFIN1; bias = AFE_MIC1; }
+		else if (src == 11) { pre1 = AFE_AMP_SINGIN0; pre2 = AFE_AMP_SINGIN0 + 1; bias = AFE_MIC0; }
+		afe_connect(fd, d, 33, src);
+		if (pre1 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, pre1, "AFE_ENDPOINT_ENABLE");
+		if (pre2 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, pre2, "AFE_ENDPOINT_ENABLE");
+		if (bias >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, bias, "AFE_ENDPOINT_ENABLE");
+		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, 33, "AFE_ENDPOINT_ENABLE (ADC0)");
+		if (pre1 >= 0) set_gain(fd, d, pre1, front_gain);
+		if (pre2 >= 0) set_gain(fd, d, pre2, front_gain);
+		channel_start(fd, d, ch, masks[m], 1);
+		read_for(fd, d, 1.0);
+		for (int k = 0; k < 6; k++) cap_peak[k] = 0;
+		out("   SILENCE 8 s…\n");
+		read_for(fd, d, 8.0);
+		int sil[6];
+		for (int k = 0; k < 6; k++) { sil[k] = cap_peak[k]; cap_peak[k] = 0; }
+		out("   PARLE 8 s…\n");
+		read_for(fd, d, 8.0);
+		out("   crêtes silence : %d %d %d %d %d %d\n", sil[0], sil[1], sil[2], sil[3], sil[4], sil[5]);
+		out("   crêtes parole  : %d %d %d %d %d %d\n", cap_peak[0], cap_peak[1], cap_peak[2],
+		    cap_peak[3], cap_peak[4], cap_peak[5]);
+		uint8_t b[16]; unsigned n;
+		n = ie_media_channel(b, 0, ch, 0);
+		request(fd, d, EV_DEM_CHANNEL_STOP, b, n, "DEM_CHANNEL_STOP");
+		afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, 33, "AFE_ENDPOINT_DISABLE");
+		if (pre1 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, pre1, "AFE_ENDPOINT_DISABLE");
+		if (pre2 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, pre2, "AFE_ENDPOINT_DISABLE");
+		if (bias >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, bias, "AFE_ENDPOINT_DISABLE");
+		n = ie_media_channel(b, 0, ch, 0);
+		request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE");
+	}
+	stop_req = 1;
+	return 0;
+}
+
 static int mode_sniff(int fd, struct decoder *d)
 {
 	out("Décodage (Ctrl-C pour arrêter)\n");
@@ -1654,6 +1720,7 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "sniff")) return mode_sniff(fd, &d);
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
 	if (!strcmp(mode, "register")) return mode_register(fd, &d);
+	if (!strcmp(mode, "mictest")) return mode_mictest(fd, &d);
 	if (!strcmp(mode, "reset")) { reset_first = 1; return mode_init(fd, &d); }
 	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel, src);
 	if (!strcmp(mode, "param")) return mode_param(fd, &d, argc - optind - 1, argv + optind + 1);
@@ -1670,6 +1737,7 @@ usage:
 			"          (service : touche verte du combiné = décroché automatique, -N pour non)\n"
 			"        dvf99 [-e NVRAM] param N [=HEX] [N [=HEX]…]\n"
 			"          -A : moteur audio (tubes /run/dvf99/{speaker,handset,mic}), -X : tweeter en %%\n"
+			"        dvf99 -e NVRAM mictest   (cherche l'entrée du micro de façade)\n"
 			"        dvf99 -e NVRAM register  (inscription d'un combiné, 120 s)\n"
 			"        dvf99 [-e NVRAM] reset   (SYS_RESET de la pile puis init ; -R : idem avant tout mode)\n"
 			"        dvf99 -f CAPTURE sniff\n");
