@@ -1,7 +1,7 @@
 # Reference: <https://postmarketos.org/vendorkernel>
 # Noyau mainline pour le Gigaset Maxwell 10 (i.MX6Q).
 # Démarrage : U-Boot vendeur (HAB fermé) → `go` sur /boot/go.bin
-# (goshim + zImage + DTB appendé), initramfs passé par ATAGs. Voir docs/postmarketos.md.
+# (goshim + zImage + DTB appendé), initramfs passé par ATAGs. See docs/en/boot.md.
 pkgname=linux-gigaset-maxwell10
 pkgver=6.12
 pkgrel=18

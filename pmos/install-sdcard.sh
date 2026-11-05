@@ -71,7 +71,7 @@ else
 	git -C "$aports" fetch origin || die "git fetch du clone pmaports a échoué ($(git -C "$aports" remote get-url origin))"
 	git -C "$aports" rev-parse --verify -q origin/main >/dev/null || \
 		die "origin/main absent dans $aports — branches distantes : $(git -C "$aports" branch -r | tr '\n' ' ')
-	     (pmbootstrap et pmaports désaccordés : mettre pmbootstrap à jour, ou recloner pmaports, voir docs/postmarketos.md)"
+	     (pmbootstrap et pmaports désaccordés : mettre pmbootstrap à jour, ou recloner pmaports, voir docs/en/install.md)"
 	# avancer la copie de travail (le fetch seul laisse les recettes en retard sur le
 	# dépôt binaire : « about to install … (local pmaports: …) »)
 	if [ "$(git -C "$aports" rev-parse --abbrev-ref HEAD)" = main ]; then

@@ -1,15 +1,36 @@
 #!/bin/sh
-# Lancé par dvf99.service. Réglages facultatifs dans /etc/default/dvf99 :
-#   DVF99_NVRAM=/var/lib/dvf99/nvram.bin   EEPROM émulée (copie du nvram.bin d'Android)
-#   DVF99_GAIN=32                          gain HP : 32 = 0 dB … 36 = −24 dB
-#   DVF99_TWEETER=50                       niveau du tweeter en % (aigus saturés à 100)
-#   DVF99_OPTS=                            autres options de dvf99 (ex. -N : pas de décroché auto,
-#                                          -Z 30 : veille du HP après 30 s de silence, -Z 0 : jamais)
+# Started by dvf99.service. Optional settings in /etc/default/dvf99:
+#   DVF99_NVRAM=/var/lib/dvf99/nvram.bin   emulated EEPROM of the DECT base (pairings, RF identity)
+#   DVF99_GAIN=32                          speaker gain: 32 = 0 dB … 36 = -24 dB
+#   DVF99_TWEETER=50                       tweeter level in % (treble clips at 100)
+#   DVF99_OPTS=                            extra dvf99 options, e.g. -N (no auto-answer),
+#                                          -Z 30 (speaker sleep after 30 s of silence, -Z 0: never)
 nv=${DVF99_NVRAM:-/var/lib/dvf99/nvram.bin}
+
+# First boot: import the base EEPROM from the untouched Android data partition
+# (eMMC p4, mounted read-only without journal replay). The file is specific to
+# each device and is never shipped. A pristine copy is kept next to it.
+if [ ! -f "$nv" ]; then
+	for part in /dev/disk/by-path/platform-2198000.mmc-part4 /dev/mmcblk2p4; do
+		[ -b "$part" ] || continue
+		m=$(mktemp -d)
+		if mount -t ext4 -o ro,noload "$part" "$m" 2>/dev/null; then
+			if [ -f "$m/cmbs/nvram.bin" ]; then
+				install -Dm600 "$m/cmbs/nvram.bin" "$nv"
+				cp -p "$nv" "${nv%.bin}.android.bin"
+				echo "dvf99: EEPROM imported from Android ($part:/cmbs/nvram.bin)"
+			fi
+			umount "$m"
+		fi
+		rmdir "$m"
+		break
+	done
+fi
+
 set -- -q -A -g "${DVF99_GAIN:-32}" -X "${DVF99_TWEETER:-50}" $DVF99_OPTS
 if [ -f "$nv" ]; then
 	set -- -e "$nv" "$@"
 else
-	echo "dvf99 : pas d'EEPROM $nv — copier le nvram.bin d'Android (appairages, calibration)" >&2
+	echo "dvf99: no EEPROM at $nv (copy Android's /data/cmbs/nvram.bin there: pairings, calibration)" >&2
 fi
 exec /usr/bin/dvf99 "$@" service

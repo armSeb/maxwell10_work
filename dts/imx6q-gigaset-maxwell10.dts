@@ -3,8 +3,8 @@
  * Gigaset Maxwell 10 (carte max10, révision matérielle 9) — DT mainline
  *
  * Tout ce qui est ici vient du DT vendeur (BSP 3.14.52) extrait de
- * /proc/device-tree, voir dts/imx6q-maxwell10-vendor.dts et docs/hardware.md.
- * État de chaque bloc : docs/postmarketos.md.
+ * /proc/device-tree, voir dts/vendor/imx6q-maxwell10-vendor.dts et docs/en/hardware.md.
+ * État de chaque bloc : docs/en/hardware.md.
  *
  * Démarrage : U-Boot vendeur → fatload go.bin (goshim + zImage + ce DTB appendé)
  * → go. L'initramfs arrive par ATAG_INITRD2 (voir tools/goshim), la ligne de
@@ -134,7 +134,7 @@
 	 * Disposition d'Android (PCM linéaire 16 kHz = 2 mots consécutifs) :
 	 * mots 0-1 appel du combiné (la base l'impose au slot 0), 2-3 tweeter
 	 * (classe D), 4-5 woofer. ALSA : 8 kHz, 6 voies ; dvf99 -A reforme les
-	 * flux 16 kHz pour PulseAudio. Voir docs/dect-cmbs.md.
+	 * flux 16 kHz pour PulseAudio. Voir docs/en/audio-dect.md.
 	 */
 	dvf99_codec: dvf99-codec {
 		compatible = "dspg,dvf9919-pcm";
@@ -144,7 +144,7 @@
 	sound-dvf99 {
 		compatible = "simple-audio-card";
 		simple-audio-card,name = "DVF99";
-		/* mis au point à chaud avec tools/ssireg : STCR = 0x280 (synchro au
+		/* mis au point à chaud avec tools/debug/ssireg : STCR = 0x280 (synchro au
 		 * début du premier bit, données sur le front descendant) */
 		simple-audio-card,format = "left_j";
 		simple-audio-card,bitclock-inversion;
@@ -202,7 +202,7 @@
 	 * l'horloge du switch Ethernet (cartes rév. ≤ 11) : on la tient HORS reset
 	 * en permanence. Sans ce hog, le pad DISP0_DAT1 restait sur sa fonction par
 	 * défaut (donnée d'affichage IPU1) et le niveau du reset n'était pas maîtrisé.
-	 * Un futur pilote DECT pourra reprendre la ligne. Voir docs/hardware.md.
+	 * Un futur pilote DECT pourra reprendre la ligne. Voir docs/en/hardware.md.
 	 */
 	/*
 	 * Bluetooth Atheros AR3002 sur UART5 (protocole ATH3K, pas de liaison
@@ -442,7 +442,7 @@
  * DT vendeur) prise sur l'oscillateur via CKO2. Alimentations : régulateurs
  * fixes toujours actifs (1,8 V / 2,8 V) chez le vendeur, donc rien à piloter.
  * Pilote : patch noyau 0004 (ov9740), chaîne imx-media :
- * ov9740 → imx6-mipi-csi2 (VC0) → ipu1_csi0_mux → ipu1_csi0. Voir docs/camera.md.
+ * ov9740 → imx6-mipi-csi2 (VC0) → ipu1_csi0_mux → ipu1_csi0. Voir docs/en/camera.md.
  */
 &i2c1 {
 	clock-frequency = <100000>;

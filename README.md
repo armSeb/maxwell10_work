@@ -1,47 +1,72 @@
-# maxwell10_work
+# Gigaset Maxwell 10 — mainline Linux and postmarketOS
 
-Libération du **Gigaset Maxwell 10** (téléphone de bureau IP/DECT avec tablette Android 10,1")
-pour en faire un terminal Linux tactile : dashboard Home Assistant, et gestion du combiné DECT.
+*[Version française](README.fr.md)*
 
-Cible : **postmarketOS** (renommé **Nura** en 2026) sur noyau **mainline**, avec un démon maison pour la base DECT (DSPG DVF99).
+The **Gigaset Maxwell 10** is a 10.1" Android desk phone (IP + DECT) built around an NXP i.MX6 Quad.
+This project runs a **mainline Linux kernel** and **postmarketOS** on it from a **microSD card**,
+without modifying the internal eMMC: Android stays intact and boots again as soon as the card is
+removed. Typical uses: a Home Assistant wall dashboard, a small touch terminal, a DECT handset you
+can drive from Linux.
 
-## État
+> postmarketOS was renamed **Nura** in 2026. The tools (`pmbootstrap`, `pmaports`) keep their
+> names, and so does this documentation.
 
-| Étape | État |
+## Status
+
+| Feature | State | Notes |
+|---|---|---|
+| Boot from microSD (U-Boot `go`, HAB untouched) | ✅ | [boot chain](docs/en/boot.md) |
+| Display LVDS 1280×800, touch screen | ✅ | KMS (imx-drm), FT5x06 |
+| GPU (Vivante GC2000, etnaviv) | ✅ | OpenGL ES 2.0 only (see the GTK4 note in [camera.md](docs/en/camera.md#performance)) |
+| CPU frequency scaling, fan | ✅ | fan driven by the kernel thermal zone |
+| Ethernet (2 ports, Marvell 88E6320 switch) | ✅ | ports `lan` and `pc` |
+| Wi-Fi (Atheros AR6003) | ✅ | needs the non-free firmware |
+| Bluetooth (Atheros AR3002) | ✅ | scan, pairing, A2DP |
+| USB OTG (gadget networking) | ✅ | `ssh user@172.16.42.1` |
+| USB host (2 type-A ports) | 🧪 | |
+| Speaker (DVF9919 woofer + tweeter) | ✅ | PulseAudio output, sleeps when idle |
+| DECT handset: earpiece, microphone, hook events | ✅ | audio path only, no telephony stack yet |
+| Camera (OmniVision OV9740) | ✅ | 1280×720 / 640×480, 30 fps |
+| Front microphone | ❌ | routing unknown |
+| HDMI, ambient light sensor | ⏳ | not done |
+
+✅ works · 🧪 written, not fully verified · ❌ not working · ⏳ not started
+
+## Getting started
+
+You need a Linux PC, a microSD card (SDHC, 32 GB max, preferably without UHS-I) and a 3.3 V
+USB-serial adapter for a one-time U-Boot setup. The whole procedure is in
+**[docs/en/install.md](docs/en/install.md)**. In short:
+
+```sh
+git clone https://github.com/armSeb/maxwell10_work && cd maxwell10_work
+pmbootstrap init                        # once, any device: creates the config and the pmaports clone
+pmos/install-sdcard.sh /dev/sdX         # builds the image, fixes the partition table, writes the card
+```
+
+then set the U-Boot environment once over the serial console.
+
+## Documentation
+
+| Document | Content |
 |---|---|
-| Inventaire matériel (dmesg, DT vendeur) | ✅ [docs/hardware.md](docs/hardware.md) |
-| Accès ADB (USB, port mini-USB caché) | ✅ |
-| Console UART2 (U-Boot 2009.08 + noyau) | ✅ [docs/boot.md](docs/boot.md#console-série) |
-| Fastboot U-Boot, `fastboot boot` en RAM | ⚠️ HAB fermé : noyau signé exigé — [docs/boot.md](docs/boot.md#secure-boot-hab--fermé) |
-| Noyau mainline 6.12 + DT minimal pour dump | ✅ démarre via `go` + [tools/goshim](tools/goshim/) — [dump/](dump/), [dts/imx6q-maxwell-dump.dts](dts/imx6q-maxwell-dump.dts) |
-| Boot automatique du noyau mainline depuis la microSD (`bootcmd` + `go`) | ✅ [docs/boot.md](docs/boot.md#boot-automatique-depuis-la-microsd-) |
-| Chargement depuis `/data` sans root (FIEMAP + `mmc read`) | 🧪 alternative, [tools/fiemap2uboot](tools/fiemap2uboot/) |
-| Dump eMMC / NOR | ⏳ |
-| Root Android (boot.img patché) | ⏳ |
-| Protocole DECT CMBS (DVF99) | 🔍 UART3 activé, outil [tools/dvf99](tools/dvf99/) — [docs/dect-cmbs.md](docs/dect-cmbs.md#sous-linux-mainline--premiers-pas) |
-| Initramfs passé par `go` (goshim → ATAG_INITRD2) | 🧪 [docs/postmarketos.md](docs/postmarketos.md#chaîne-de-démarrage) |
-| DT mainline complet (écran, tactile, SD, Ethernet DSA, Wi-Fi…) | 🧪 écrit, compile — [dts/imx6q-gigaset-maxwell10.dts](dts/imx6q-gigaset-maxwell10.dts), [état par bloc](docs/postmarketos.md#état-des-périphériques-dt-dtsimx6q-gigaset-maxwell10dts) |
-| Port postmarketOS (microSD, boot FAT32) | 🧪 paquets prêts, à installer — [pmos/](pmos/), [docs/postmarketos.md](docs/postmarketos.md) |
+| [install.md](docs/en/install.md) | building, writing the card, U-Boot setup, first boot, updates, troubleshooting |
+| [hardware.md](docs/en/hardware.md) | hardware inventory, buses, GPIOs, mainline driver status |
+| [boot.md](docs/en/boot.md) | secure boot (HAB), how `go` + goshim boot an unsigned kernel, U-Boot pitfalls |
+| [audio-dect.md](docs/en/audio-dect.md) | DSPG DVF9919: CMBS protocol, audio paths, `dvf99` daemon, DECT handset |
+| [camera.md](docs/en/camera.md) | OV9740 driver, imx-media pipeline, applications |
+| [development.md](docs/en/development.md) | repository layout, packages, kernel patches and config, debug tools |
 
-## Matériel en bref
+## What this repository does not contain
 
-i.MX6 Quad (rev 1.5), 2 Go de RAM, eMMC 4 Go, NOR SPI 2 Mo (U-Boot), écran LVDS 1280×800,
-tactile FocalTech FT5x06, switch Marvell 88E6320 (2 ports gigabit, PoE), Wi-Fi Atheros AR6003,
-Bluetooth AR3002, caméra OV9740, base DECT + AFE audio **DSPG DVF9919**.
+- no Gigaset or DSPG binaries or firmware, and no headers derived from their sources;
+- no per-device data (serial numbers, MAC addresses, DECT RFPI, RF calibration, EEPROM contents).
 
-## Arborescence
+Everything device-specific is read from your own device. For example, the DECT base EEPROM is
+copied from the Android data partition on first boot.
 
-```
-docs/      notes de rétro-ingénierie, boot, postmarketOS
-dts/       DT vendeur extrait (nettoyé), DT mainline de dump, DT mainline complet
-dump/      init minimal + script PC pour dumper eMMC/NOR via mass storage USB
-pmos/      paquets pmaports (noyau + device), script de synchronisation
-tools/     goshim (lancer un zImage par `go`), fiemap2uboot, mkbootimg v0, dump RAM, scan MDIO (/dev/mem), dvf99 (console/boot/décodage CMBS), DWARF → header C
-```
+## Disclaimer
 
-## Ce dépôt ne contient pas
-
-- de binaires ou firmwares Gigaset / DSPG, ni de headers dérivés de leurs sources ;
-- d'identifiants propres à un appareil (numéro de série, MAC, RFPI DECT, calibration RF).
-
-Les outils permettent de régénérer localement ce qui est nécessaire à partir de son propre appareil.
+This is an unofficial community project, not affiliated with Gigaset. Use it at your own risk.
+The procedure never writes to the eMMC. The only persistent change is the U-Boot environment in the
+SPI NOR flash, which can be reverted (see [install.md](docs/en/install.md#going-back-to-android)).

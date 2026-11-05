@@ -1,6 +1,6 @@
 # Base DECT / audio DSPG DVF9919 (protocole CMBS sur /dev/ttymxc2) :
 # démarre sa pile, émule son EEPROM et ouvre le chemin haut-parleur, pour que la
-# moteur audio (tubes /run/dvf99 pour PulseAudio) et décroché du combiné. Voir docs/dect-cmbs.md.
+# moteur audio (tubes /run/dvf99 pour PulseAudio) et décroché du combiné. Voir docs/en/audio-dect.md.
 [Unit]
 Description=Base DECT et haut-parleur (DVF9919, CMBS)
 After=systemd-udevd.service

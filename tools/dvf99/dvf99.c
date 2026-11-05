@@ -32,13 +32,13 @@
  *                                         -g 32..36 : 0 à −24 dB (défaut 34 = −12) ;
  *                                         -w : durée ; -k : laisse le chemin ouvert ;
  *                                         -S 22 : micro (DIFFIN0) → HP, sans TDM
- *                                         -W SLOTS : slots du tweeter (défaut 0x0F00, les
- *                                         mêmes que le woofer ; Android : 0x00F0 ; 0 : aucun)
+ *                                         -W SLOTS : slots du tweeter (défaut 0x00F0 ; 0x0F00 : les
+ *                                         mêmes que le woofer ; 0 : aucun)
  *   dvf99 [-e NVRAM] param 55 56          lit des paramètres CMBS (55/56 = volume
  *                                         DAC1/DAC2) ; « param 55 =1234 » écrit 12 34
  *   dvf99 [-q] [-e NVRAM] [-g GAIN] [-P SLOTS] [-C SLOTS] [-N] service
  *                                         -P : slots du haut-parleur (défaut 0x0F00) ;
- *                                         -C : slots de l'appel du combiné (défaut 0xF000) ;
+ *                                         -C : slots de l'appel du combiné (défaut 0x000F, slot 0 imposé) ;
  *                                         touche verte du combiné = décroché automatique
  *                                         (canal d'appel sur ces slots), sauf avec -N
  *                                         pour systemd : init + chemin haut-parleur ouvert
@@ -48,7 +48,7 @@
  * Sous Android, CMBSServer pulse le reset de la DVF99, envoie « run bootm » à son
  * U-Boot, puis parle CMBS. Sous mainline, personne ne le fait : la DVF99 reste
  * dans son U-Boot (elle fournit quand même l'horloge du switch Ethernet).
- * Voir docs/dect-cmbs.md.
+ * Voir docs/en/audio-dect.md.
  *
  * Garde-fous : la console refuse les commandes U-Boot qui écrivent dans la flash
  * ou l'environnement du module (saveenv, upgrade, erase…) sauf avec -U.

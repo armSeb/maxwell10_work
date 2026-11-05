@@ -1,25 +1,24 @@
-# Images et dumps
+# Disk images and dumps: never commit them
 *.img
 *.img.gz
 *.bin
-maxwell-dump-*/
-# Binaires et dérivés du firmware vendeur (ne pas publier)
+# Vendor binaries and files derived from them (do not publish)
 *.so
 *.apk
 CMBSServer
 cmbs_host
 cmbs_types.h
 dect_configs/
-# Build
-dump/init
+nvram*.bin
+# Build outputs
 zImage*
 *.cpio*
 __pycache__/
-tools/fiemap2uboot/fiemap2uboot
-tools/mdio-scan/mdio-scan
 tools/dvf99/dvf99
-tools/ssireg/ssireg
+tools/debug/memrw/memrw
+tools/debug/mdio-scan/mdio-scan
+tools/debug/ssireg/ssireg
+# Copied into the packages by pmos/sync.sh (source of truth elsewhere)
 pmos/linux-gigaset-maxwell10/imx6q-gigaset-maxwell10.dts
 pmos/linux-gigaset-maxwell10/goshim.S
 pmos/device-gigaset-maxwell10/dvf99.c
-tools/memrw/memrw
