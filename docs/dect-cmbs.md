@@ -441,8 +441,11 @@ ne peut prendre cette forme. D'où la disposition d'Android, telle quelle :
 - noyau : composant `dvf9919` en 8 kHz / 6 voies, DT : mots 0..5 en émission et réception ;
 - `dvf99 -A` (accès ALSA direct par ioctl ; tinyalsa lisait mal l’état mmapé en armv7 time64) ouvre la carte, range / extrait les paires d'échantillons et
   sert les tubes ; l'arriéré de plus de 120 ms est jeté, les manques complétés de silence ;
-- PulseAudio : `module-pipe-sink` ×2 et `module-pipe-source` (`/etc/pulse/default.pa.d/dvf99.pa`), la
-  carte brute est ignorée (`PULSE_IGNORE`, règle udev `61-dvf99-pulseaudio.rules`).
+- PulseAudio : `module-pipe-sink` ×2 et `module-pipe-source`, chargés dans la session de l'utilisateur par
+  l'unité utilisateur `dvf99-pulse.service` (`ConditionUser=!@system`). Une config globale
+  (`default.pa.d`) était aussi chargée par le PulseAudio du greeter (greetd), qui s'emparait des tubes :
+  plus de son, micro introuvable. La carte brute est ignorée (`PULSE_IGNORE`, règle udev
+  `61-dvf99-pulseaudio.rules`).
 
 ### Robustesse (2026-11-04, soir)
 
@@ -464,3 +467,6 @@ enregistrement de son micro sous PulseAudio.
   (second `TARGET_UP`) et oublie HELLO/SYS_START déjà reçus : la radio ne s'allume pas et le combiné ne
   revient pas (d'où le succès de « `dvf99 init` puis le service » : la seconde poignée de main). `do_init`
   refait HELLO + SYS_START tant qu'un TARGET_UP arrive pendant l'init.
+- **Micro du combiné validé** : voies 0-1 de la capture pendant un appel (crêtes 7608 / 10242 en parlant).
+- La base ne signale pas toujours `HS_IN_RANGE` : le mode service considère aussi les données du combiné
+  (événement 274) comme preuve de présence.

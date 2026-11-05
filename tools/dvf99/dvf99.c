@@ -308,6 +308,7 @@ struct decoder {
 	unsigned hello_len;
 	int prompt;		/* invite « DVF99 # » du U-Boot du module vue */
 	unsigned target_ups;	/* TARGET_UP reçus */
+	unsigned hs_events;	/* événements 274 (données du combiné) reçus */
 	double t0;
 	int fd;			/* -1 pour un fichier de capture */
 	int eep_fd;		/* EEPROM émulée (-e), -1 sinon */
@@ -474,6 +475,7 @@ static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned 
 		d->want_seen = 1;
 	}
 	if (ev == EV_TARGET_UP) d->target_ups++;
+	if (ev == 274) d->hs_events++;
 	if (ev == CMD_HELLO_RPLY) {
 		d->hello_len = n < sizeof d->hello ? n : sizeof d->hello;
 		memcpy(d->hello, p, d->hello_len);
@@ -1298,6 +1300,20 @@ static void audio_start(void)
 	mkdir(AUD_DIR, 0755);
 	/* les trois tubes existent avant que PulseAudio ne cherche à les ouvrir
 	 * (il ne peut pas les créer lui-même dans /run/dvf99) */
+	/* Tubes laissés par une autre session PulseAudio (le greeter, par ex.) :
+	 * on les retire au démarrage pour repartir de tubes à nous (sorties) ou
+	 * à créer par la session de l'utilisateur (micro). Utilisateurs système
+	 * seulement (uid < 1000) : jamais ceux d'une session en cours. */
+	static const char *const names[] = { "speaker", "handset", "mic" };
+	for (int i = 0; i < 3; i++) {
+		char path[64];
+		struct stat st;
+		snprintf(path, sizeof path, AUD_DIR "/%s", names[i]);
+		if (stat(path, &st) == 0 && st.st_uid != 0 && st.st_uid < 1000) {
+			out("audio : tube %s laissé par l'uid %u, retiré\n", names[i], (unsigned)st.st_uid);
+			unlink(path);
+		}
+	}
 	close(aud_fifo("speaker")); close(aud_fifo("handset"));
 	/* module-pipe-source, lui, refuse un tube existant (mkfifo sans EEXIST) :
 	 * c'est PulseAudio qui crée /run/dvf99/mic, d'où le répertoire 1777, et
@@ -1324,9 +1340,13 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 	 * attend qu'il soit signalé (HS_IN_RANGE) ou au plus -I secondes. */
 	if (keep && settle_s > 0) {
 		out("4) attente du combiné (HS_IN_RANGE, %d s au plus)\n", settle_s);
+		/* HS_IN_RANGE n'arrive pas toujours : les données du combiné (274,
+		 * décroché/raccroché…) prouvent aussi sa présence */
 		d->want = 8; d->want_seen = 0;
+		unsigned hs0 = d->hs_events;
 		double end = now() + settle_s;
-		while (now() < end && !d->want_seen) read_for(fd, d, 0.5);
+		while (now() < end && !d->want_seen && d->hs_events == hs0) read_for(fd, d, 0.5);
+		if (d->hs_events != hs0) d->want_seen = 1;
 		d->want = 0;
 		out(d->want_seen ? "   combiné présent\n" : "   pas de combiné signalé, on continue\n");
 		if (d->want_seen) read_for(fd, d, 2.0);

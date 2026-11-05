@@ -1,5 +1,6 @@
 #!/bin/sh
-# active le service DVF99 sur une installation existante (les images neuves
-# appliquent déjà le preset)
+# active les services sur une installation existante (les images neuves
+# appliquent déjà les presets)
 systemctl preset dvf99.service maxwell-bluetooth.service >/dev/null 2>&1 || true
+systemctl --global preset dvf99-pulse.service >/dev/null 2>&1 || true
 exit 0

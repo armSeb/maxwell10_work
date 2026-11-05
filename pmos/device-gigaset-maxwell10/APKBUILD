@@ -2,7 +2,7 @@
 pkgname=device-gigaset-maxwell10
 pkgdesc="Gigaset Maxwell 10"
 pkgver=1
-pkgrel=10
+pkgrel=11
 url="https://github.com/armSeb/maxwell10_work"
 license="MIT"
 arch="armv7"
@@ -15,7 +15,7 @@ depends="
 	zstd
 	"
 makedepends="devicepkg-dev linux-headers"
-install="$pkgname.post-install"
+install="$pkgname.post-install $pkgname.post-upgrade"
 subpackages="$pkgname-nonfree-firmware:nonfree_firmware"
 source="
 	deviceinfo
@@ -25,10 +25,12 @@ source="
 	dvf99-service
 	80-gigaset-maxwell10.preset
 	61-dvf99-pulseaudio.rules
-	dvf99.pa
+	dvf99-pulse
+	dvf99-pulse.service
 	dvf99-tmpfiles.conf
 	maxwell-bluetooth
 	maxwell-bluetooth.service
+	80-gigaset-maxwell10-user.preset
 	"
 
 build() {
@@ -51,7 +53,11 @@ package() {
 		"$pkgdir"/usr/lib/systemd/system-preset/80-gigaset-maxwell10.preset
 	install -Dm644 "$srcdir"/61-dvf99-pulseaudio.rules \
 		"$pkgdir"/usr/lib/udev/rules.d/61-dvf99-pulseaudio.rules
-	install -Dm644 "$srcdir"/dvf99.pa "$pkgdir"/etc/pulse/default.pa.d/dvf99.pa
+	install -Dm755 "$srcdir"/dvf99-pulse "$pkgdir"/usr/libexec/dvf99-pulse
+	install -Dm644 "$srcdir"/dvf99-pulse.service \
+		"$pkgdir"/usr/lib/systemd/user/dvf99-pulse.service
+	install -Dm644 "$srcdir"/80-gigaset-maxwell10-user.preset \
+		"$pkgdir"/usr/lib/systemd/user-preset/80-gigaset-maxwell10.preset
 	install -Dm644 "$srcdir"/dvf99-tmpfiles.conf "$pkgdir"/usr/lib/tmpfiles.d/dvf99.conf
 	install -Dm755 "$srcdir"/maxwell-bluetooth "$pkgdir"/usr/libexec/maxwell-bluetooth
 	install -Dm644 "$srcdir"/maxwell-bluetooth.service \

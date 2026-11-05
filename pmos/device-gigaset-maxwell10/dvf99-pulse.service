@@ -1,0 +1,14 @@
+[Unit]
+Description=Sorties et entrée audio de la DVF9919 dans PulseAudio
+After=pulseaudio.service
+Wants=pulseaudio.service
+# pas pour les comptes système (greeter greetd/phrog) : leur PulseAudio prendrait les tubes
+ConditionUser=!@system
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/dvf99-pulse
+
+[Install]
+WantedBy=default.target
