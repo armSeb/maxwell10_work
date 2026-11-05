@@ -5,7 +5,8 @@ The OV9740 (720p YUV, one CSI-2 lane) of the Gigaset Maxwell 10 lost its
 driver with soc_camera. Media-controller subdevice: DT clock, supplies,
 power-down/reset GPIOs, CSI-2 endpoint, pre_streamon/post_streamoff for
 the LP-11 handshake of imx6-mipi-csi2, LINK_FREQ/PIXEL_RATE, flip
-controls and get_mbus_config.
+controls, get_mbus_config, and the activity LED of the "leds" phandle
+(on while streaming, not controllable from user space).
 
 The register tables (1280x720 and 640x480) are the ones of the GPL
 Freescale ov9740_mipi driver shipped in the device's Android kernel: the
@@ -47,10 +48,10 @@ index fbb988bd0..503118d37 100644
  obj-$(CONFIG_VIDEO_RJ54N1) += rj54n1cb0c.o
 diff --git a/drivers/media/i2c/ov9740.c b/drivers/media/i2c/ov9740.c
 new file mode 100644
-index 000000000..f95f4de4e
+index 000000000..8709679ae
 --- /dev/null
 +++ b/drivers/media/i2c/ov9740.c
-@@ -0,0 +1,823 @@
+@@ -0,0 +1,864 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/*
 + * OmniVision OV9740 — 1/6" 720p YUV sensor, MIPI CSI-2 one lane
@@ -69,6 +70,7 @@ index 000000000..f95f4de4e
 +#include <linux/delay.h>
 +#include <linux/gpio/consumer.h>
 +#include <linux/i2c.h>
++#include <linux/leds.h>
 +#include <linux/module.h>
 +#include <linux/of.h>
 +#include <linux/regulator/consumer.h>
@@ -437,6 +439,7 @@ index 000000000..f95f4de4e
 +	struct v4l2_ctrl *hflip, *vflip;
 +	struct clk *xclk;
 +	struct gpio_desc *pwdn, *reset;
++	struct led_classdev *led;	/* activity (privacy) LED, optional */
 +	struct regulator_bulk_data supplies[ARRAY_SIZE(ov9740_supply_names)];
 +	struct mutex lock;		/* format, power and streaming state */
 +	struct v4l2_mbus_framefmt fmt;	/* active format */
@@ -634,6 +637,20 @@ index 000000000..f95f4de4e
 +	return 0;
 +}
 +
++/*
++ * Activity LED: the "leds" phandle of the sensor node (led-names =
++ * "privacy-led"). Linux 6.12 only resolves privacy LEDs from lookup tables,
++ * so the driver drives it: on while streaming, and not controllable from
++ * user space, like the V4L2 privacy LED.
++ */
++static void ov9740_led(struct ov9740 *s, bool on)
++{
++#if IS_REACHABLE(CONFIG_LEDS_CLASS)
++	if (s->led)
++		led_set_brightness(s->led, on ? s->led->max_brightness : 0);
++#endif
++}
++
 +static int ov9740_pre_streamon(struct v4l2_subdev *sd, u32 flags)
 +{
 +	struct ov9740 *s = to_ov9740(sd);
@@ -654,6 +671,7 @@ index 000000000..f95f4de4e
 +	struct ov9740 *s = to_ov9740(sd);
 +
 +	mutex_lock(&s->lock);
++	ov9740_led(s, false);
 +	ov9740_power_off(s);
 +	mutex_unlock(&s->lock);
 +	return 0;
@@ -675,8 +693,11 @@ index 000000000..f95f4de4e
 +				goto out;
 +		}
 +		ret = ov9740_write(s, OV9740_MODE_SELECT, 0x01);
++		if (!ret)
++			ov9740_led(s, true);
 +		goto out;
 +	}
++	ov9740_led(s, false);
 +	ret = ov9740_write(s, OV9740_MODE_SELECT, 0x00);
 +out:
 +	mutex_unlock(&s->lock);
@@ -783,6 +804,19 @@ index 000000000..f95f4de4e
 +	if (IS_ERR(s->reset))
 +		return PTR_ERR(s->reset);
 +
++#if IS_REACHABLE(CONFIG_LEDS_CLASS)
++	s->led = devm_of_led_get_optional(dev, 0);
++	if (IS_ERR(s->led))
++		return dev_err_probe(dev, PTR_ERR(s->led), "activity LED\n");
++	if (s->led) {
++		mutex_lock(&s->led->led_access);
++		led_sysfs_disable(s->led);
++		led_trigger_remove(s->led);
++		led_set_brightness(s->led, 0);
++		mutex_unlock(&s->led->led_access);
++	}
++#endif
++
 +	ret = ov9740_power_on(s);
 +	if (ret)
 +		return dev_err_probe(dev, ret, "power on failed\n");
@@ -852,7 +886,15 @@ index 000000000..f95f4de4e
 +	v4l2_subdev_cleanup(sd);
 +	media_entity_cleanup(&sd->entity);
 +	v4l2_ctrl_handler_free(&s->ctrls);
++	ov9740_led(s, false);
 +	ov9740_power_off(s);
++#if IS_REACHABLE(CONFIG_LEDS_CLASS)
++	if (s->led) {
++		mutex_lock(&s->led->led_access);
++		led_sysfs_enable(s->led);
++		mutex_unlock(&s->led->led_access);
++	}
++#endif
 +}
 +
 +static const struct of_device_id ov9740_of_match[] = {

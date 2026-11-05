@@ -89,9 +89,10 @@
 		/*
 		 * LED de la caméra (GPIO1_IO05), active à l'état bas (constaté : niveau 0
 		 * = allumée). Laissé non configuré, le pad flottait et la LED s'allumait
-		 * au toucher (couplage avec l'IRQ tactile voisine).
+		 * au toucher (couplage avec l'IRQ tactile voisine). Pilotée par le
+		 * pilote ov9740 (propriété « leds » du capteur) : allumée pendant le flux.
 		 */
-		led-camera {
+		camera_led: led-camera {
 			label = "camera";
 			gpios = <&gpio1 5 GPIO_ACTIVE_LOW>;
 			default-state = "off";
@@ -466,6 +467,8 @@
 		assigned-clock-parents = <&clks IMX6QDL_CLK_OSC>, <&clks IMX6QDL_CLK_CKO2>;
 		powerdown-gpios = <&gpio5 24 GPIO_ACTIVE_HIGH>;
 		reset-gpios = <&gpio5 23 GPIO_ACTIVE_LOW>;
+		leds = <&camera_led>;
+		led-names = "privacy-led";
 
 		port {
 			ov9740_to_mipi_csi2: endpoint {

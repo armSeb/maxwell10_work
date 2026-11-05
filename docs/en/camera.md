@@ -21,6 +21,9 @@ adds a modern V4L2 subdevice driver (`ov9740`, built as a module):
 - clock, GPIOs and CSI-2 endpoint from the device tree;
 - `pre_streamon` / `post_streamoff`, needed for the LP-11 handshake of the `imx6-mipi-csi2` receiver;
 - controls `LINK_FREQ`, `PIXEL_RATE`, `HFLIP`, `VFLIP`; `get_mbus_config`;
+- the green activity LED (GPIO1_IO5, `leds` phandle of the sensor node): on while streaming, and not
+  controllable from user space, like a V4L2 privacy LED (Linux 6.12 cannot resolve those from the
+  device tree yet, so the driver drives it);
 - two modes, **1280×720** and **640×480** (centred 960×720 window, scaled), media bus code `UYVY8_2X8`.
 
 The register tables come from the GPL Freescale `ov9740_mipi` driver of the device's Android kernel.

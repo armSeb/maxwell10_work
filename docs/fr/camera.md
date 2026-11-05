@@ -21,6 +21,9 @@ ajoute un pilote moderne de sous-périphérique V4L2 (`ov9740`, construit en mod
 - horloge, GPIO et point de terminaison CSI-2 tirés du device tree ;
 - `pre_streamon` / `post_streamoff`, nécessaires à la poignée de main LP-11 du récepteur `imx6-mipi-csi2` ;
 - contrôles `LINK_FREQ`, `PIXEL_RATE`, `HFLIP`, `VFLIP` ; `get_mbus_config` ;
+- la LED verte d'activité (GPIO1_IO5, référencée par `leds` dans le nœud du capteur) : allumée pendant
+  le flux, non pilotable depuis l'espace utilisateur, comme une « privacy LED » V4L2 (Linux 6.12 ne sait
+  pas encore les trouver dans le device tree, c'est donc le pilote qui la commande) ;
 - deux modes, **1280×720** et **640×480** (fenêtre centrée de 960×720, mise à l'échelle), code media bus
   `UYVY8_2X8`.
 
