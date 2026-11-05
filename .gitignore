@@ -22,3 +22,4 @@ tools/ssireg/ssireg
 pmos/linux-gigaset-maxwell10/imx6q-gigaset-maxwell10.dts
 pmos/linux-gigaset-maxwell10/goshim.S
 pmos/device-gigaset-maxwell10/dvf99.c
+tools/memrw/memrw
