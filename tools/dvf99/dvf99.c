@@ -974,7 +974,7 @@ static unsigned ie_gpio_id(uint8_t *b, unsigned at)
 }
 
 /* GPIO du banc D de la DVF99 en sortie, à la valeur donnée */
-static void dvf_gpio(int fd, struct decoder *d, unsigned gpio, int val)
+static void __attribute__((unused)) dvf_gpio(int fd, struct decoder *d, unsigned gpio, int val)
 {
 	uint8_t b[48]; unsigned n;
 	char w[48];
@@ -1662,12 +1662,17 @@ static int mode_param(int fd, struct decoder *d, int argc, char **argv)
  * haut-parleur, les slots 0..3 sont libres. */
 static int mode_mictest(int fd, struct decoder *d)
 {
-	/* essai n°2 : GPIO D11 (activé par Android pour les appareils 3 à 5),
-	 * polarisations MIC0 et MIC1 toujours, gain +30 dB, et pour les micros
-	 * numériques aussi l'ADC1/ADC2 (l'appareil 2 active l'indice 10 = ADC2) */
-	static const struct { int src, adc; } tries[] = {
-		{ 15, 33 }, { 15, 35 }, { 16, 34 }, { 16, 35 }, { 9, 33 }, { 10, 33 }, { 11, 33 },
-		{ 9, 34 }, { 10, 35 },
+	/* essai n°3 : reproduire Android. Logcat du magnétophone : le micro intégré
+	 * est l'appareil 2 de device_config_info, ADC0 ← DIGMIC1 (15) avec un seul
+	 * point activé, l'indice 10 = ADC2 (35), slot 0, sans GPIO ni polarisation
+	 * ni gain ; séquence ALLOCATE, CONNECT, ENABLE, DEM_CHANNEL_START, sur un
+	 * second canal (f1) pendant que le haut-parleur tient f0. Variantes autour. */
+	static const struct { int dst, src, en1, en2; const char *what; } tries[] = {
+		{ 33, 15, 35, -1, "ADC0 <- DIGMIC1, active ADC2 (Android)" },
+		{ 33, 15, 33, 35, "ADC0 <- DIGMIC1, active ADC0 + ADC2" },
+		{ 35, 15, 35, -1, "ADC2 <- DIGMIC1, active ADC2" },
+		{ 33, 16, 35, -1, "ADC0 <- DIGMIC2, active ADC2" },
+		{ 33, 15, 33, -1, "ADC0 <- DIGMIC1, active ADC0" },
 	};
 	if (do_init(fd, d)) return 1;
 	{
@@ -1682,25 +1687,18 @@ static int mode_mictest(int fd, struct decoder *d)
 	}
 	audio_on = 1; audio_start();
 	read_for(fd, d, 3.0);
-	dvf_gpio(fd, d, 11, 1);
-	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, AFE_MIC0, "AFE_ENDPOINT_ENABLE (MIC0)");
-	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, AFE_MIC1, "AFE_ENDPOINT_ENABLE (MIC1)");
+	/* canal fictif pour que le micro reçoive f1, comme sous Android */
+	uint32_t dummy = 0;
+	afe_alloc(fd, d, &dummy, 0);
 	for (unsigned i = 0; i < sizeof tries / sizeof *tries; i++) {
-		int src = tries[i].src, adc = tries[i].adc;
 		uint32_t ch;
-		out("\n=== entrée %d → ADC%d, slots 0x00f0 ===\n", src, adc - 33);
+		out("\n=== %s, slots 0x000f ===\n", tries[i].what);
 		if (afe_alloc(fd, d, &ch, 0)) { read_for(fd, d, 1.0); continue; }
-		int pre1 = -1, pre2 = -1;
-		if (src == 9) pre1 = AFE_AMP_DIFFIN0;
-		else if (src == 10) pre1 = AFE_AMP_DIFFIN1;
-		else if (src == 11) { pre1 = AFE_AMP_SINGIN0; pre2 = AFE_AMP_SINGIN0 + 1; }
-		afe_connect(fd, d, adc, src);
-		if (pre1 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, pre1, "AFE_ENDPOINT_ENABLE");
-		if (pre2 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, pre2, "AFE_ENDPOINT_ENABLE");
-		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, adc, "AFE_ENDPOINT_ENABLE (ADC)");
-		if (pre1 >= 0) set_gain(fd, d, pre1, 22);	/* +30 dB */
-		if (pre2 >= 0) set_gain(fd, d, pre2, 22);
-		channel_start(fd, d, ch, 0x00F0, 1);
+		afe_connect(fd, d, tries[i].dst, tries[i].src);
+		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, tries[i].en1, "AFE_ENDPOINT_ENABLE");
+		if (tries[i].en2 >= 0)
+			afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, tries[i].en2, "AFE_ENDPOINT_ENABLE");
+		channel_start(fd, d, ch, 0x000F, 1);
 		read_for(fd, d, 1.0);
 		for (int k = 0; k < 6; k++) cap_peak[k] = 0;
 		out("   SILENCE 6 s…\n");
@@ -1709,18 +1707,23 @@ static int mode_mictest(int fd, struct decoder *d)
 		for (int k = 0; k < 6; k++) { sil[k] = cap_peak[k]; cap_peak[k] = 0; }
 		out("   PARLE 6 s…\n");
 		read_for(fd, d, 6.0);
-		out("   crêtes silence / parole (voies 2,3) : %d %d / %d %d\n",
-		    sil[2], sil[3], cap_peak[2], cap_peak[3]);
+		out("   crêtes silence / parole : voies 0,1 = %d %d / %d %d ; voies 2..5 = %d %d %d %d / %d %d %d %d\n",
+		    sil[0], sil[1], cap_peak[0], cap_peak[1],
+		    sil[2], sil[3], sil[4], sil[5], cap_peak[2], cap_peak[3], cap_peak[4], cap_peak[5]);
 		uint8_t b[16]; unsigned n;
 		n = ie_media_channel(b, 0, ch, 0);
 		request(fd, d, EV_DEM_CHANNEL_STOP, b, n, "DEM_CHANNEL_STOP");
-		afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, adc, "AFE_ENDPOINT_DISABLE");
-		if (pre1 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, pre1, "AFE_ENDPOINT_DISABLE");
-		if (pre2 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, pre2, "AFE_ENDPOINT_DISABLE");
+		afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, tries[i].en1, "AFE_ENDPOINT_DISABLE");
+		if (tries[i].en2 >= 0)
+			afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, tries[i].en2, "AFE_ENDPOINT_DISABLE");
 		n = ie_media_channel(b, 0, ch, 0);
 		request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE");
 	}
-	dvf_gpio(fd, d, 11, 0);
+	if (dummy) {
+		uint8_t b[16];
+		unsigned n = ie_media_channel(b, 0, dummy, 0);
+		request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE");
+	}
 	stop_req = 1;
 	return 0;
 }
