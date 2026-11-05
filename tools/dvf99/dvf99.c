@@ -955,6 +955,12 @@ release:
 	return 0;
 }
 
+static unsigned ie_u8(uint8_t *b, unsigned at, unsigned type, unsigned val)
+{
+	uint8_t v = val;
+	return ie_add(b, at, type, &v, 1);
+}
+
 static unsigned ie_gpio_n(uint8_t *b, unsigned at, unsigned gpio)
 {
 	uint8_t v[5];
@@ -984,11 +990,6 @@ static void dvf_gpio(int fd, struct decoder *d, unsigned gpio, int val)
 	request(fd, d, EV_GPIO_CONFIG_SET, b, n, w);
 }
 
-static unsigned ie_u8(uint8_t *b, unsigned at, unsigned type, unsigned val)
-{
-	uint8_t v = val;
-	return ie_add(b, at, type, &v, 1);
-}
 
 /* ressource : 0 = DAC/ADC, 1 = classe D (ampli intégré) */
 static int afe_alloc(int fd, struct decoder *d, uint32_t *chan, int res)
