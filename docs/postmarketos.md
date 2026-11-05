@@ -134,7 +134,7 @@ sauf mention contraire.
 | Watchdog | 🧪 | servi par le noyau |
 | GPU (etnaviv), cpufreq | ✅ | accélération Phosh OK (GC2000), fréquence CPU variable |
 | Capteur de lumière ISL29023 | ⏳ | bus à identifier |
-| Bluetooth AR3002 | 🧪 | UART5 (`/dev/ttymxc4`, RTS/CTS, mode DTE) + rfkill-gpio sur GPIO4_IO07. `hci_uart` « ath3k » n'a pas de liaison DT : rien dans dmesg tant que personne n'attache l'UART. `maxwell-bluetooth.service` (device pkgrel 10) décompresse les firmwares `ar3k` (livrés en zstd, illisibles pour `hciattach`), débloque le rfkill puis lance `hciattach -n -s 115200 /dev/ttymxc4 ath3k 3000000 flow` |
+| Bluetooth AR3002 | 🧪 | UART5 (`/dev/ttymxc4`, RTS/CTS, mode DCE comme le nœud actif du vendeur — le mode DTE croisait TX/RX) + rfkill-gpio sur GPIO4_IO07. `hci_uart` « ath3k » n'a pas de liaison DT : rien dans dmesg tant que personne n'attache l'UART. `maxwell-bluetooth.service` (device pkgrel 10) décompresse les firmwares `ar3k` (livrés en zstd, illisibles pour `hciattach`), débloque le rfkill puis lance `hciattach -n -s 115200 /dev/ttymxc4 ath3k 3000000 flow` |
 | Caméra OV9740 | 🧪 | pilote porté (patch noyau `0004`, pkgrel 14), MIPI CSI-2 une voie via imx-media. Essai : `tools/camera/ov9740-capture.sh`. Détails : [camera.md](camera.md) |
 | HDMI | ⏳ | |
 | Haut-parleur (DVF99) | ✅ | carte ALSA **DVF99**, mono 16 kHz, en TDM sur SSI2 (patch `0003`). `dvf99.service` démarre la base, émule son EEPROM et ouvre le chemin haut-parleur au boot. Copier une fois le `nvram.bin` d'Android dans `/var/lib/dvf99/nvram.bin` (propre à l'appareil, jamais dans le dépôt). Volume : gain fixe (`DVF99_GAIN` dans `/etc/default/dvf99`) + volume logiciel PipeWire. Détails : [dect-cmbs.md](dect-cmbs.md#configuration-tdm-et-carte-alsa-pkgrel-11) |

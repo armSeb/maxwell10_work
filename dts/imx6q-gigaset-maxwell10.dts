@@ -242,12 +242,15 @@
 	status = "okay";
 };
 
-/* AR3002 : 115200 au démarrage, contrôle de flux matériel, câblage DTE (vendeur) */
+/*
+ * AR3002 : 115200 au démarrage, contrôle de flux matériel. Le nœud UART5 du DT
+ * vendeur utilise le groupe « uart5grp-1 » en mode DCE (sans fsl,dte-mode) ;
+ * le groupe DTE, présent mais inutilisé, croisait TX/RX (hciattach : timeout).
+ */
 &uart5 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_uart5>;
 	uart-has-rtscts;
-	fsl,dte-mode;
 	status = "okay";
 };
 
@@ -506,12 +509,12 @@
 	};
 
 	pinctrl_uart5: uart5grp {
-		/* valeurs du DT vendeur (uart5dtegrp-1) */
+		/* valeurs du groupe actif du DT vendeur (uart5grp-1, DCE) */
 		fsl,pins = <
-			0x204 0x5d4 0x000 0x4 0x0 0x1b0b1	/* KEY_ROW1 */
-			0x200 0x5d0 0x940 0x4 0x0 0x1b0b1	/* KEY_COL1 */
-			0x21c 0x5ec 0x93c 0x4 0x1 0x1b0b1	/* KEY_ROW4 */
-			0x218 0x5e8 0x000 0x4 0x0 0x1b0b1	/* KEY_COL4 */
+			0x200 0x5d0 0x000 0x4 0x0 0x1b0b1	/* KEY_COL1 UART5_TX */
+			0x204 0x5d4 0x940 0x4 0x1 0x1b0b1	/* KEY_ROW1 UART5_RX */
+			0x218 0x5e8 0x93c 0x4 0x0 0x1b0b1	/* KEY_COL4 UART5_RTS_B (entrée en DCE) */
+			0x21c 0x5ec 0x000 0x4 0x0 0x1b0b1	/* KEY_ROW4 UART5_CTS_B */
 		>;
 	};
 
