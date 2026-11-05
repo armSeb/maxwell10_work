@@ -1,0 +1,11 @@
+[Unit]
+Description=Import vendor firmware (VPU, Wi-Fi calibration) from the Android partition
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/maxwell-firmware-import
+
+[Install]
+WantedBy=multi-user.target

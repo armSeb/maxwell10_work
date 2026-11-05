@@ -27,6 +27,7 @@ DECT piloté depuis Linux.
 | Haut-parleur (DVF9919 woofer + tweeter) | ✅ | sortie PulseAudio, mise en veille au repos |
 | Combiné DECT : écouteur, micro, décroché | ✅ | chemin audio seulement, pas encore de pile téléphonique |
 | Caméra (OmniVision OV9740) | ✅ | 1280×720 / 640×480, 30 i/s |
+| Codec vidéo matériel (VPU CODA960) | ✅ | décodage/encodage H.264 par V4L2 ; firmware copié d'Android |
 | Micro de façade | ❌ | routage inconnu |
 | HDMI, capteur de lumière | ⏳ | pas fait |
 

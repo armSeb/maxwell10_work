@@ -58,6 +58,7 @@ et installer avec `pmbootstrap sideload` (voir [install.md](install.md#mettre-à
 | `61-dvf99-pulseaudio.rules` | udev | cache à PulseAudio la carte ALSA brute |
 | `maxwell-bluetooth.service`, `maxwell-bluetooth` | unité système | coupe et rallume l'AR3002 (GPIO4_IO7), décompresse le firmware `ar3k`, lance `hciattach … ath3k 3000000 flow` |
 | `62-maxwell-camera.rules`, `maxwell-camera.service`, `maxwell-camera` | udev + unité oneshot | chaîne media de la caméra, `/dev/video-camera` |
+| `maxwell-firmware-import.service`, `maxwell-firmware-import` | unité oneshot | copie `vpu_fw_imx6q.bin` et le `bdata.bin` du Wi-Fi depuis le `/system` d'Android (eMMC p5, lecture seule) vers `/lib/firmware/updates`, puis recharge `coda` / `ath6kl_sdio` |
 | `60-maxwell-ioscheduler.rules` | udev | ordonnanceur d'E/S BFQ sur `mmcblk*` |
 | `80-gigaset-maxwell10*.preset` | presets systemd | activent les services |
 

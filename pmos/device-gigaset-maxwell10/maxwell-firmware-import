@@ -1,0 +1,46 @@
+#!/bin/sh
+# Copies the per-device / vendor firmware files that no Alpine package provides
+# from the untouched Android system partition (eMMC p5, mounted read-only
+# without journal replay). They stay on this device and are never shipped.
+#   vpu_fw_imx6q.bin   CODA960 VPU firmware 3.1.1 (hardware video codec, coda driver)
+#   bdata.bin          AR6003 Wi-Fi board data, calibrated for this unit
+#                      (otherwise ath6kl falls back to the generic bdata.SD31.bin)
+# Destination /lib/firmware/updates: searched first by the kernel, owned by no package.
+set -u
+dst=/lib/firmware/updates
+# android path → firmware path ; module to reload once the file is in place
+files="lib/firmware/vpu/vpu_fw_imx6q.bin:vpu/vpu_fw_imx6q.bin:coda
+etc/firmware/ath6k/AR6003/hw2.1.1/bdata.bin:ath6k/AR6003/hw2.1.1/bdata.bin:ath6kl_sdio"
+
+missing=0
+for f in $files; do
+	fw=$(echo "$f" | cut -d: -f2)
+	[ -e "$dst/$fw" ] || [ -e "/lib/firmware/$fw" ] || missing=1
+done
+[ "$missing" = 1 ] || exit 0
+
+part=
+for p in /dev/disk/by-path/platform-2198000.mmc-part5 /dev/mmcblk2p5; do
+	[ -b "$p" ] && { part=$p; break; }
+done
+[ -n "$part" ] || { echo "Android system partition not found"; exit 0; }
+m=$(mktemp -d)
+mount -t ext4 -o ro,noload "$part" "$m" || { rmdir "$m"; exit 0; }
+reload=
+for f in $files; do
+	src=$(echo "$f" | cut -d: -f1); fw=$(echo "$f" | cut -d: -f2); mod=$(echo "$f" | cut -d: -f3)
+	[ -e "$dst/$fw" ] || [ -e "/lib/firmware/$fw" ] && continue
+	if [ -f "$m/$src" ]; then
+		install -Dm644 "$m/$src" "$dst/$fw"
+		echo "imported $fw from Android"
+		reload="$reload $mod"
+	fi
+done
+umount "$m"; rmdir "$m"
+# drivers that probed before the files existed: load them again
+for mod in $reload; do
+	if grep -q "^$mod " /proc/modules; then
+		modprobe -r "$mod" && modprobe "$mod" && echo "reloaded $mod"
+	fi
+done
+exit 0

@@ -1,5 +1,5 @@
 #!/bin/sh
 # nouvelles unités apparues avec les mises à jour (sans toucher à dvf99.service)
-systemctl preset maxwell-bluetooth.service >/dev/null 2>&1 || true
+systemctl preset maxwell-bluetooth.service maxwell-firmware-import.service >/dev/null 2>&1 || true
 systemctl --global preset dvf99-pulse.service >/dev/null 2>&1 || true
 exit 0

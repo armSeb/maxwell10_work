@@ -162,6 +162,7 @@ automatique ; voici comment le vérifier.
 | Réseau | `ip a` | ports Ethernet `lan` et `pc` ; Wi-Fi `wlan0` dans les paramètres ; réseau USB par le port mini-USB derrière le cache gauche du socle : `ssh <utilisateur>@172.16.42.1` |
 | Base DECT et audio | `journalctl -u dvf99` | au premier démarrage l'EEPROM de la base est copiée depuis Android (`dvf99: EEPROM imported from Android`) vers `/var/lib/dvf99/nvram.bin`, avec une copie intacte `nvram.android.bin` |
 | Son | paramètres du son | sorties **Haut-parleur** (défaut) et **Combiné** (combiné DECT), entrée **Micro du combiné** |
+| Firmwares du constructeur | `journalctl -u maxwell-firmware-import` | au premier démarrage, le firmware du VPU et la calibration Wi-Fi de l'appareil sont copiés depuis la partition système d'Android vers `/lib/firmware/updates` (aucun paquet Alpine ne les fournit) |
 | Bluetooth | `bluetoothctl show` | `maxwell-bluetooth.service` |
 | Caméra | application Caméra, ou `gst-launch-1.0 v4l2src device=/dev/video-camera ! videoconvert ! waylandsink` | voir [camera.md](camera.md) |
 

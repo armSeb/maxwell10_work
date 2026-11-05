@@ -162,6 +162,7 @@ this is how to check it.
 | Network | `ip a` | Ethernet ports `lan` and `pc`; Wi-Fi `wlan0` in the settings; USB networking on the mini-USB port behind the left cover of the base: `ssh <user>@172.16.42.1` |
 | DECT base and audio | `journalctl -u dvf99` | on first boot the base EEPROM is copied from Android (`dvf99: EEPROM imported from Android`) to `/var/lib/dvf99/nvram.bin`, with a pristine copy `nvram.android.bin` |
 | Sound | sound settings | outputs **Haut-parleur** (speaker, default) and **Combiné** (DECT handset), input **Micro du combiné** (handset microphone) |
+| Vendor firmware | `journalctl -u maxwell-firmware-import` | on first boot the VPU firmware and the Wi-Fi calibration of your unit are copied from the Android system partition to `/lib/firmware/updates` (no Alpine package provides them) |
 | Bluetooth | `bluetoothctl show` | `maxwell-bluetooth.service` |
 | Camera | Camera application, or `gst-launch-1.0 v4l2src device=/dev/video-camera ! videoconvert ! waylandsink` | see [camera.md](camera.md) |
 

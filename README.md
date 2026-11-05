@@ -27,6 +27,7 @@ can drive from Linux.
 | Speaker (DVF9919 woofer + tweeter) | ✅ | PulseAudio output, sleeps when idle |
 | DECT handset: earpiece, microphone, hook events | ✅ | audio path only, no telephony stack yet |
 | Camera (OmniVision OV9740) | ✅ | 1280×720 / 640×480, 30 fps |
+| Hardware video codec (CODA960 VPU) | ✅ | H.264 decode/encode through V4L2; firmware copied from Android |
 | Front microphone | ❌ | routing unknown |
 | HDMI, ambient light sensor | ⏳ | not done |
 
