@@ -46,6 +46,16 @@ le nom stable `/dev/video-camera`. L'appli Appareil photo (PipeWire, nœud V4L2)
 l'image. PipeWire liste aussi les autres nœuds imx-media (IC prpenc/prpvf, IPU2, csc-scaler), non
 câblés ; c'est le premier (`ipu1_csi0 capture`) qui est choisi par défaut.
 
+Performances : la capture tient 30 i/s (v4l2-ctl, GStreamer). L'appli Snapshot plafonne vers
+1 i/s avec ~90 % de CPU : le GC2000 (etnaviv) ne fournit qu'OpenGL ES 2.0, GTK4 exige GLES 3.0 et
+retombe sur le rendu logiciel (`GSK_RENDERER=gl` n'y change rien). Limite de l'affichage GTK4, pas de
+la caméra. Affichage direct quasi fluide :
+
+```sh
+gst-launch-1.0 v4l2src device=/dev/video-camera ! video/x-raw,format=UYVY,width=1280,height=720 \
+  ! videoconvert ! waylandsink
+```
+
 libcamera ne gère pas l'IPU de l'i.MX6 : pas de pipeline libcamera, PipeWire passe par son
 greffon V4L2.
 
