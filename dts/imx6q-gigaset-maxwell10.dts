@@ -44,9 +44,15 @@
 	backlight: backlight {
 		compatible = "pwm-backlight";
 		pwms = <&pwm1 0 50000 0>;		/* 50 µs, comme le vendeur */
-		brightness-levels = <0 255>;
-		num-interpolated-steps = <255>;
-		default-brightness-level = <200>;
+		/*
+		 * Le driver de LED reste éteint sous ~4 % de rapport cyclique (rien à
+		 * 9/255, allumé à 11/255) : l'échelle commence à 18/255 (7 %, minimum
+		 * du DT vendeur), sinon une luminosité basse restaurée par l'interface
+		 * donne un écran noir. L'extinction passe par bl_power, pas par 0.
+		 */
+		brightness-levels = <18 255>;
+		num-interpolated-steps = <237>;
+		default-brightness-level = <180>;
 	};
 
 	panel {

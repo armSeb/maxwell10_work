@@ -33,7 +33,7 @@ and tests under mainline. Board observed: `max10`, hardware revision 9.
 | Block | Part | Bus / pins | Mainline driver | State |
 |---|---|---|---|---|
 | Display | LVDS 1280×800 panel, LDB channel 0, IPU2-DI0 | — | imx-ldb + panel-simple | ✅ |
-| Backlight | PWM1, 50 µs period | — | pwm-backlight | ✅ on, brightness control 🧪 |
+| Backlight | PWM1, 50 µs period | — | pwm-backlight; the LED driver stays dark below ~4 % duty, so the scale starts at 18/255 (7 %, like the vendor DT) | ✅ |
 | Touch | FocalTech FT5x06 | i2c3 @ 0x38, IRQ GPIO1_IO2, reset GPIO2_IO19 | edt-ft5x06 | ✅ |
 | Ethernet | FEC RGMII fixed-link 1 Gb/s → **Marvell 88E6320** switch: ports `lan` (3), `pc` (4), CPU (5) | MDIO, reset GPIO1_IO9 | mv88e6xxx (DSA), patch 0001 | ✅ |
 | Wi-Fi | Atheros **AR6003** hw 2.1.1 | SDIO usdhc1, reset GPIO1_IO8 | ath6kl_sdio + `linux-firmware-ath6k`; this unit's calibration (`bdata.bin`) imported from Android | ✅ |

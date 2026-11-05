@@ -33,7 +33,7 @@ mainline. Carte observée : `max10`, révision matérielle 9.
 | Bloc | Composant | Bus / broches | Pilote mainline | État |
 |---|---|---|---|---|
 | Écran | dalle LVDS 1280×800, canal LDB 0, IPU2-DI0 | — | imx-ldb + panel-simple | ✅ |
-| Rétroéclairage | PWM1, période 50 µs | — | pwm-backlight | ✅ allumé, réglage de luminosité 🧪 |
+| Rétroéclairage | PWM1, période 50 µs | — | pwm-backlight ; le driver de LED reste éteint sous ~4 % de rapport cyclique, l'échelle commence donc à 18/255 (7 %, comme le DT vendeur) | ✅ |
 | Tactile | FocalTech FT5x06 | i2c3 @ 0x38, IRQ GPIO1_IO2, reset GPIO2_IO19 | edt-ft5x06 | ✅ |
 | Ethernet | FEC RGMII fixed-link 1 Gb/s → switch **Marvell 88E6320** : ports `lan` (3), `pc` (4), CPU (5) | MDIO, reset GPIO1_IO9 | mv88e6xxx (DSA), patch 0001 | ✅ |
 | Wi-Fi | Atheros **AR6003** hw 2.1.1 | SDIO usdhc1, reset GPIO1_IO8 | ath6kl_sdio + `linux-firmware-ath6k` ; calibration de l'appareil (`bdata.bin`) importée d'Android | ✅ |

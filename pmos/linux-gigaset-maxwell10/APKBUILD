@@ -4,7 +4,7 @@
 # (goshim + zImage + DTB appendé), initramfs passé par ATAGs. See docs/en/boot.md.
 pkgname=linux-gigaset-maxwell10
 pkgver=6.12
-pkgrel=18
+pkgrel=19
 pkgdesc="Gigaset Maxwell 10 mainline kernel"
 arch="armv7"
 _carch="arm"
