@@ -59,7 +59,7 @@ et installer avec `pmbootstrap sideload` (voir [install.md](install.md#mettre-à
 | `maxwell-bluetooth.service`, `maxwell-bluetooth` | unité système | coupe et rallume l'AR3002 (GPIO4_IO7), décompresse le firmware `ar3k`, lance `hciattach … ath3k 3000000 flow` |
 | `62-maxwell-camera.rules`, `maxwell-camera.service`, `maxwell-camera` | udev + unité oneshot | chaîne media de la caméra, `/dev/video-camera` |
 | `maxwell-firmware-import.service`, `maxwell-firmware-import` | unité oneshot | copie `vpu_fw_imx6q.bin` et le `bdata.bin` du Wi-Fi depuis le `/system` d'Android (eMMC p5, lecture seule) vers `/lib/firmware/updates`, puis recharge `coda` / `ath6kl_sdio` |
-| `90_gigaset-maxwell10.gschema.override` | `/usr/share/glib-2.0/schemas` | valeurs par défaut GNOME/Phosh : pas d'extinction de l'écran ni de mise en veille par inactivité (l'écran de connexion ne se réveille pas de façon fiable) |
+| `90_gigaset-maxwell10.gschema.override` | `/usr/share/glib-2.0/schemas` | valeurs par défaut GNOME/Phosh : pas d'extinction de l'écran ni de mise en veille par inactivité, baisse de luminosité conservée (l'écran de connexion ne se réveille pas de façon fiable) |
 | `60-maxwell-ioscheduler.rules` | udev | ordonnanceur d'E/S BFQ sur `mmcblk*` |
 | `80-gigaset-maxwell10*.preset` | presets systemd | activent les services |
 
