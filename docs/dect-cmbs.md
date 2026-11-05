@@ -471,6 +471,16 @@ enregistrement de son micro sous PulseAudio.
 - La base ne signale pas toujours `HS_IN_RANGE` : le mode service considère aussi les données du combiné
   (événement 274) comme preuve de présence.
 
+### Veille du haut-parleur (device pkgrel 13)
+
+Au repos, un léger souffle restait audible : ampli externe du woofer (GPIO D10) et classe D intégrée du
+tweeter alimentés en permanence. Après `-Z` secondes sans échantillon non nul (5 par défaut, |x| < 16 =
+silence), dvf99 coupe l'ampli D10 et arrête le canal du tweeter (`DEM_CHANNEL_STOP`) ; le premier son
+les relance (GPIO + `DEM_CHANNEL_START`, ~0,2 s). Pendant ce réveil le fil audio garde le son dans le
+tampon de gigue (le silence qui le précède est jeté) : un bip court n'est pas perdu, il part juste avec
+le retard du réveil. Le canal du woofer et le combiné ne sont pas touchés. `DVF99_OPTS="-Z 0"` dans
+`/etc/default/dvf99` désactive la veille, `-Z 30` l'espace.
+
 ## Micro de façade (à identifier)
 
 Table `device_config_info` de la bibliothèque Android (108 octets par appareil) : mot 5 = décalage de

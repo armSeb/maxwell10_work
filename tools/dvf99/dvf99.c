@@ -1054,6 +1054,25 @@ static void spk_amp(int fd, struct decoder *d, int on)
 	}
 }
 
+/* veille / réveil du haut-parleur : ampli D10 et canal du tweeter (classe D) */
+static void spk_power(int fd, struct decoder *d, int on, uint32_t tweeter, unsigned tw)
+{
+	int q = quiet; quiet = 1;
+	if (on) {
+		spk_amp(fd, d, 1);
+		if (tweeter) channel_start(fd, d, tweeter, tw, 1);
+	} else {
+		if (tweeter) {
+			uint8_t b[16];
+			unsigned n = ie_media_channel(b, 0, tweeter, 0);
+			request(fd, d, EV_DEM_CHANNEL_STOP, b, n, "DEM_CHANNEL_STOP (tweeter)");
+		}
+		spk_amp(fd, d, 0);
+	}
+	quiet = q;
+	out(on ? "haut-parleur : réveil\n" : "haut-parleur : veille (silence)\n");
+}
+
 /* Séquence « haut-parleur » de la bibliothèque hôte d'Android (woofer + tweeter) :
  * woofer = AMP_OUT2/AMP_OUT3 en pont (DAC0 / DAC0 inversé), slots TDM 8..11 ;
  * tweeter = second canal, slots 4..7, sans extrémité ; ampli sur GPIO D10.
@@ -1086,7 +1105,17 @@ static int tweeter_pct = 50;		/* -X : niveau du tweeter en % (écrêtage des aig
 static int audio_on;			/* -A */
 static int audio_nomic;			/* -M : pas de capture (micro du combiné) */
 static int audio_probe = -1;
+/* Veille du haut-parleur (-Z) : sans son pendant spk_idle_s secondes, l'ampli
+ * (GPIO D10) et le canal du tweeter (classe D) sont coupés, plus de souffle ; ils
+ * repartent au premier échantillon non nul. Pendant le réveil (~0,2 s), le son est
+ * retenu dans le tampon de gigue : un bip court n'est pas perdu. */
+static int spk_idle_s = 5;		/* -Z N : secondes de silence avant veille (0 : jamais) */
+static volatile int spk_ready = 1;	/* ampli et tweeter en marche (fil principal) */
+static volatile unsigned spk_loud_ms;	/* horodatage (ms) du dernier son non nul (fil audio) */
+#define SPK_FLOOR	16		/* |échantillon| en dessous = silence */
 static volatile int cap_peak[6];	/* crêtes de capture, remises à zéro par mictest */		/* -D N : diagnostic, haut-parleur sur la paire de voies N seule */
+
+static unsigned now_ms(void) { return (unsigned)(long long)(now() * 1000.0); }
 
 static int aud_card(void)
 {
@@ -1150,6 +1179,16 @@ static void jb_take(struct jbuf *j, int16_t *out_, unsigned k)
 	memcpy(out_, j->v, k * 2);
 	memmove(j->v, j->v + k, (j->n - k) * 2);
 	j->n -= k;
+}
+
+/* vrai si le tampon contient du son ; sinon le vide (pas de latence de silence) ;
+ * retire aussi le silence qui précède le son */
+static int jb_has_sound(struct jbuf *j)
+{
+	unsigned i = 0;
+	while (i < j->n && j->v[i] < SPK_FLOOR && j->v[i] > -SPK_FLOOR) i++;
+	if (i) { memmove(j->v, j->v + i, (j->n - i) * 2); j->n -= i; }
+	return j->n > 0;
 }
 
 static void hp_mask(struct snd_pcm_hw_params *p, int n, unsigned v)
@@ -1241,7 +1280,17 @@ static void *aud_play(void *arg)
 			if (c < 0 || (fd = aud_open(c, 0)) < 0) { sleep(2); continue; }
 			out("audio : lecture ouverte (carte %d, 8 kHz, %d voies)\n", c, AUD_CH);
 		}
-		jb_take(&spk, s, 2 * AUD_FR);
+		if (spk_ready || spk_idle_s <= 0) {
+			jb_take(&spk, s, 2 * AUD_FR);
+			for (int i = 0; i < 2 * AUD_FR; i++)
+				if (s[i] >= SPK_FLOOR || s[i] <= -SPK_FLOOR) { spk_loud_ms = now_ms(); break; }
+		} else {
+			/* en veille : on garde le son pour le réveil, le silence est jeté */
+			jb_fill(&spk);
+			if (jb_has_sound(&spk)) spk_loud_ms = now_ms();
+			spk.primed = 0;
+			memset(s, 0, sizeof s);
+		}
 		jb_take(&hs, h, 2 * AUD_FR);
 		for (int i = 0; i < AUD_FR; i++) {
 			int16_t *f = buf + AUD_CH * i;
@@ -1471,10 +1520,22 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 		sa.sa_handler = on_stop;
 		sigaction(SIGTERM, &sa, NULL);
 		sigaction(SIGINT, &sa, NULL);
+		int idle = audio_on && dac && spk_idle_s > 0;
+		spk_loud_ms = now_ms();
 		while (!stop_req) {
-			if (read_for(fd, d, 0.5) < 0) return 1;
+			if (read_for(fd, d, idle ? 0.05 : 0.5) < 0) return 1;
 			call_step(d);
+			if (!idle) continue;
+			int quiet_ms = (int)(now_ms() - spk_loud_ms);
+			if (spk_ready && quiet_ms > spk_idle_s * 1000) {
+				spk_ready = 0;		/* le fil audio cesse de consommer avant la coupure */
+				spk_power(fd, d, 0, tweeter, tw);
+			} else if (!spk_ready && quiet_ms < 1000) {
+				spk_power(fd, d, 1, tweeter, tw);
+				spk_ready = 1;
+			}
 		}
+		if (!spk_ready) { spk_power(fd, d, 1, tweeter, tw); spk_ready = 1; }
 		out("arrêt demandé\n");
 		if (d->call.active) {		/* raccroche côté base */
 			uint8_t b[32], v[8]; unsigned n;
@@ -1689,7 +1750,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:F:Q:G:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:F:Q:G:Z:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -1714,6 +1775,7 @@ int main(int argc, char **argv)
 		case 'A': audio_on = 1; break;
 		case 'X': tweeter_pct = atoi(optarg); break;
 		case 'M': audio_nomic = 1; break;
+		case 'Z': spk_idle_s = atoi(optarg); break;
 		case 'I': settle_s = atoi(optarg); break;
 		case 'F': front_src = atoi(optarg); break;
 		case 'Q': front_slots = strtoul(optarg, NULL, 0); break;
@@ -1765,6 +1827,7 @@ usage:
 			"          (service : touche verte du combiné = décroché automatique, -N pour non)\n"
 			"        dvf99 [-e NVRAM] param N [=HEX] [N [=HEX]…]\n"
 			"          -A : moteur audio (tubes /run/dvf99/{speaker,handset,mic}), -X : tweeter en %%\n"
+			"          -Z N : veille du haut-parleur après N s de silence (défaut 5, 0 : jamais)\n"
 			"        dvf99 -e NVRAM mictest   (cherche l'entrée du micro de façade)\n"
 			"        dvf99 -e NVRAM register  (inscription d'un combiné, 120 s)\n"
 			"        dvf99 [-e NVRAM] reset   (SYS_RESET de la pile puis init ; -R : idem avant tout mode)\n"
