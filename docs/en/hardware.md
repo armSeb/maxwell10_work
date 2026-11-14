@@ -64,6 +64,20 @@ All analog audio (speaker, microphones, handset) goes through the DVF9919.
 | UART3 | `0x21ec000` | ttymxc2 | **DVF9919**: its U-Boot console, then the CMBS protocol; 115200 8N1, no flow control |
 | UART5 | `0x21f4000` | ttymxc4 | **Bluetooth** AR3002, RTS/CTS |
 
+### Console pads (UART2)
+
+The console is on four round pads on the right edge of the board, around the mini-USB connector and the
+reset button, under the "Gigaset Maxwell" print:
+
+![UART2 pads](../img/uart2-pads.jpg)
+
+- top, the two tinned pads: **RX** (left) and **TX** (right), tablet side: wire the adapter's TX to RX and
+  its RX to TX (swap them if nothing shows up);
+- bottom, the tinned pad: **GND**.
+
+> ⚠️ **The untinned gold pad left of GND is +12 V**, not a UART signal. Touching it with an adapter
+> wire destroys the adapter (it happened). Use a 3.3 V adapter and connect only RX, TX and GND.
+
 ## Pitfall: the switch clock comes from the DVF9919
 
 On boards up to revision 11, the crystal clock of the Marvell switch is **supplied by the DVF9919**.

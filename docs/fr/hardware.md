@@ -64,6 +64,21 @@ l'audio analogique (haut-parleur, micros, combiné) passe par la DVF9919.
 | UART3 | `0x21ec000` | ttymxc2 | **DVF9919** : sa console U-Boot, puis le protocole CMBS ; 115200 8N1, sans contrôle de flux |
 | UART5 | `0x21f4000` | ttymxc4 | **Bluetooth** AR3002, RTS/CTS |
 
+### Pastilles de la console (UART2)
+
+La console est sur quatre pastilles rondes au bord droit de la carte, autour du connecteur mini-USB et du
+bouton reset, sous la sérigraphie « Gigaset Maxwell » :
+
+![Pastilles UART2](../img/uart2-pads.jpg)
+
+- en haut, les deux pastilles étamées : **RX** (gauche) et **TX** (droite), côté tablette : relier le TX de
+  l'adaptateur au RX et son RX au TX (les inverser si rien ne s'affiche) ;
+- en bas, la pastille étamée : **GND**.
+
+> ⚠️ **La pastille dorée non étamée à gauche du GND est le +12 V**, pas un signal UART. La toucher avec
+> un fil de l'adaptateur le détruit (c'est arrivé). Utiliser un adaptateur 3,3 V et ne relier que RX, TX
+> et GND.
+
 ## Piège : l'horloge du switch vient de la DVF9919
 
 Sur les cartes jusqu'à la révision 11, l'horloge du switch Marvell est **fournie par la DVF9919**.

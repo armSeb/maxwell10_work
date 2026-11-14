@@ -8,7 +8,7 @@ the vendor bootloader.
 ## Vendor bootloader
 
 - U-Boot **2009.08** (Gigaset build `2009.08.maxwell.gc.014`, 2015) in the **SPI NOR**, not on the eMMC.
-- Console on UART2, 115200 8N1. `bootdelay` is 0: press a key while powering on to get the prompt.
+- Console on UART2, 115200 8N1 ([pads](hardware.md#console-pads-uart2), mind the +12 V pad next to GND). `bootdelay` is 0: press a key while powering on to get the prompt.
 - The environment stored in the NOR is invalid on a stock unit (`bad CRC, using default environment`):
   the defaults are used until the first `saveenv`.
 - `adb reboot bootloader` enters fastboot (protocol 0.5, USB `18d1:0d02`): only `getvar version`,

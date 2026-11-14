@@ -255,6 +255,7 @@ Build: `tools/dvf99/build.sh` (static ARM binary) or the device package. Run as 
 | `dvf99 [-e NVRAM] speaker [-t TONE\|-1] [-k]` | open the speaker path, optionally with a tone |
 | `dvf99 [-e NVRAM] param N [=HEX] …` | read / write CMBS parameters |
 | `dvf99 -A -e NVRAM mictest` | front microphone search |
+| `dvf99 -e NVRAM [-g GAIN] [-t TONE] outtest` | plays a tone on each possible output in turn (class D, AMP_OUT0..3 with GPIO D10/D11), then tries two class D channels at once: which physical speaker is wired to what |
 
 | Option | Meaning |
 |---|---|

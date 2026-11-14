@@ -8,7 +8,7 @@ savoir du bootloader d'origine.
 ## Bootloader d'origine
 
 - U-Boot **2009.08** (build Gigaset `2009.08.maxwell.gc.014`, 2015) dans la **NOR SPI**, pas sur l'eMMC.
-- Console sur l'UART2, 115200 8N1. `bootdelay` vaut 0 : appuyer sur une touche à l'allumage pour avoir
+- Console sur l'UART2, 115200 8N1 ([pastilles](hardware.md#pastilles-de-la-console-uart2), attention à la pastille +12 V à côté du GND). `bootdelay` vaut 0 : appuyer sur une touche à l'allumage pour avoir
   l'invite.
 - L'environnement stocké dans la NOR est invalide sur un appareil d'origine (`bad CRC, using default
   environment`) : les valeurs par défaut s'appliquent jusqu'au premier `saveenv`.

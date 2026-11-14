@@ -1656,6 +1656,107 @@ static int mode_param(int fd, struct decoder *d, int argc, char **argv)
 	return 0;
 }
 
+/* dvf99 outtest : joue une tonalité sur chaque sortie possible, l'une après
+ * l'autre, pour savoir quel haut-parleur physique (woofer, petit HP gauche,
+ * petit HP droit) est câblé sur quoi. Sorties candidates : la classe D, AMP_OUT2/3
+ * (le woofer d'Android, ampli GPIO D10) et AMP_OUT0/1 (utilisées par les
+ * « appareils » mains libres 3 à 5 d'Android, avec GPIO D11). Termine par
+ * deux allocations classe D simultanées : une stéréo intégrée serait acceptée. */
+static int mode_outtest(int fd, struct decoder *d, int gain, int tone)
+{
+	static const struct { int res, o1, s1, o2, s2, gpio; const char *what; } tries[] = {
+		{ 1, -1,  0, -1,  0, -1, "classe D seule (« tweeter » d'Android)" },
+		{ 0, 27, 17, 28, 19, 10, "AMP_OUT2+3 en pont <- DAC0, GPIO D10 (« woofer » d'Android)" },
+		{ 0, 27, 17, -1,  0, 10, "AMP_OUT2 seule <- DAC0, GPIO D10" },
+		{ 0, 28, 17, -1,  0, 10, "AMP_OUT3 seule <- DAC0, GPIO D10" },
+		{ 0, 25, 17, 26, 19, 11, "AMP_OUT0+1 en pont <- DAC0, GPIO D11 (mains libres d'Android)" },
+		{ 0, 25, 17, -1,  0, 11, "AMP_OUT0 seule <- DAC0, GPIO D11" },
+		{ 0, 26, 17, -1,  0, 11, "AMP_OUT1 seule <- DAC0, GPIO D11" },
+		{ 0, 25, 17, 26, 19, -1, "AMP_OUT0+1 en pont <- DAC0, sans GPIO" },
+		{ 0, 25, 17, 26, 19, 10, "AMP_OUT0+1 en pont <- DAC0, GPIO D10" },
+	};
+	if (do_init(fd, d)) return 1;
+	{
+		uint8_t b[16]; unsigned n;
+		int q = quiet; quiet = 1;
+		for (uint32_t c = 0xF0; c <= 0xF3; c++) {
+			n = ie_media_channel(b, 0, c, 0);
+			send_msg(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n);
+			read_for(fd, d, 0.2);
+		}
+		quiet = q;
+	}
+	out("\nNoter pour chaque essai : woofer / petit HP gauche / petit HP droit / rien.\n");
+	for (unsigned i = 0; i < sizeof tries / sizeof *tries; i++) {
+		uint8_t b[32]; unsigned n;
+		uint32_t ch;
+		out("\n=== essai %u : %s ===\n", i + 1, tries[i].what);
+		read_for(fd, d, 2.0);
+		if (afe_alloc(fd, d, &ch, tries[i].res)) { read_for(fd, d, 1.0); continue; }
+		int o[2] = { tries[i].o1, tries[i].o2 }, s[2] = { tries[i].s1, tries[i].s2 };
+		for (int k = 0; k < 2; k++) {
+			if (o[k] < 0) continue;
+			afe_connect(fd, d, o[k], s[k]);
+			afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, o[k], "AFE_ENDPOINT_ENABLE");
+			set_gain(fd, d, o[k], gain);
+		}
+		channel_start(fd, d, ch, tries[i].res ? 0x00F0 : 0x0F00, 1);
+		if (tries[i].gpio >= 0) dvf_gpio(fd, d, tries[i].gpio, 1);
+		n = ie_media_channel(b, 0, ch, 0);
+		n = ie_u8(b, n, IE_TONE, tone);
+		request(fd, d, EV_DEM_TONE_START, b, n, "DEM_TONE_START");
+		out("   >>> ÉCOUTE (4 s)\n");
+		read_for(fd, d, 4.0);
+		n = ie_media_channel(b, 0, ch, 0);
+		request(fd, d, EV_DEM_TONE_STOP, b, n, "DEM_TONE_STOP");
+		if (tries[i].gpio >= 0) {
+			dvf_gpio(fd, d, tries[i].gpio, 0);
+			n = ie_gpio_n(b, 0, tries[i].gpio);
+			request(fd, d, EV_GPIO_DISABLE, b, n, "GPIO_DISABLE");
+		}
+		n = ie_media_channel(b, 0, ch, 0);
+		request(fd, d, EV_DEM_CHANNEL_STOP, b, n, "DEM_CHANNEL_STOP");
+		for (int k = 0; k < 2; k++)
+			if (o[k] >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, o[k], "AFE_ENDPOINT_DISABLE");
+		n = ie_media_channel(b, 0, ch, 0);
+		request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE");
+	}
+
+	/* une seconde classe D ? */
+	out("\n=== essai %u : deux canaux classe D à la fois ===\n", (unsigned)(sizeof tries / sizeof *tries) + 1);
+	uint32_t c1 = 0, c2 = 0;
+	int r1 = afe_alloc(fd, d, &c1, 1), r2 = afe_alloc(fd, d, &c2, 1);
+	out("   >>> seconde classe D : %s\n", r2 ? "REFUSÉE (une seule classe D)" : "ACCEPTÉE");
+	if (!r1 && !r2) {
+		uint8_t b[32]; unsigned n;
+		channel_start(fd, d, c1, 0x00F0, 1);
+		channel_start(fd, d, c2, 0xF000, 1);
+		for (int k = 0; k < 2; k++) {
+			uint32_t c = k ? c2 : c1;
+			out("   >>> tonalité sur la classe D n°%d (4 s)\n", k + 1);
+			n = ie_media_channel(b, 0, c, 0);
+			n = ie_u8(b, n, IE_TONE, tone);
+			request(fd, d, EV_DEM_TONE_START, b, n, "DEM_TONE_START");
+			read_for(fd, d, 4.0);
+			n = ie_media_channel(b, 0, c, 0);
+			request(fd, d, EV_DEM_TONE_STOP, b, n, "DEM_TONE_STOP");
+			read_for(fd, d, 1.0);
+		}
+		for (int k = 0; k < 2; k++) {
+			n = ie_media_channel(b, 0, k ? c2 : c1, 0);
+			request(fd, d, EV_DEM_CHANNEL_STOP, b, n, "DEM_CHANNEL_STOP");
+		}
+	}
+	for (int k = 0; k < 2; k++) {
+		uint32_t c = k ? c2 : c1;
+		if ((k ? r2 : r1) || !c) continue;
+		uint8_t b[16];
+		unsigned n = ie_media_channel(b, 0, c, 0);
+		request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE");
+	}
+	return 0;
+}
+
 /* dvf99 -A mictest : essaie chaque entrée possible du micro de façade vers
  * l'ADC0, dans une seule session (pas de redémarrage de la base), et mesure les
  * crêtes reçues sur les 6 voies : silence 8 s puis parole 8 s. Sans canaux de
@@ -1814,6 +1915,7 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
 	if (!strcmp(mode, "register")) return mode_register(fd, &d);
 	if (!strcmp(mode, "mictest")) return mode_mictest(fd, &d);
+	if (!strcmp(mode, "outtest")) return mode_outtest(fd, &d, gain, tone);
 	if (!strcmp(mode, "reset")) { reset_first = 1; return mode_init(fd, &d); }
 	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel, src);
 	if (!strcmp(mode, "param")) return mode_param(fd, &d, argc - optind - 1, argv + optind + 1);
@@ -1832,6 +1934,7 @@ usage:
 			"          -A : moteur audio (tubes /run/dvf99/{speaker,handset,mic}), -X : tweeter en %%\n"
 			"          -Z N : veille du haut-parleur après N s de silence (défaut 5, 0 : jamais)\n"
 			"        dvf99 -e NVRAM mictest   (cherche l'entrée du micro de façade)\n"
+			"        dvf99 -e NVRAM [-g GAIN] [-t TONALITÉ] outtest  (quelle sortie pour quel haut-parleur)\n"
 			"        dvf99 -e NVRAM register  (inscription d'un combiné, 120 s)\n"
 			"        dvf99 [-e NVRAM] reset   (SYS_RESET de la pile puis init ; -R : idem avant tout mode)\n"
 			"        dvf99 -f CAPTURE sniff\n");
