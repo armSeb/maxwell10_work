@@ -71,8 +71,8 @@ bouton reset, sous la sérigraphie « Gigaset Maxwell » :
 
 ![Pastilles UART2](../img/uart2-pads.jpg)
 
-- en haut, les deux pastilles étamées : **RX** (gauche) et **TX** (droite), côté tablette : relier le TX de
-  l'adaptateur au RX et son RX au TX (les inverser si rien ne s'affiche) ;
+- en haut, les deux pastilles étamées : **RX** (gauche) et **TX** (droite), nommées côté carte et vues comme
+  sur la photo (dos de la carte, écran vers le bas) : relier le TX de l'adaptateur au RX et son RX au TX ;
 - en bas, la pastille étamée : **GND**.
 
 > ⚠️ **La pastille dorée non étamée à gauche du GND est le +12 V**, pas un signal UART. La toucher avec

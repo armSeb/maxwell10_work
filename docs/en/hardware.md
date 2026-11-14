@@ -71,8 +71,8 @@ reset button, under the "Gigaset Maxwell" print:
 
 ![UART2 pads](../img/uart2-pads.jpg)
 
-- top, the two tinned pads: **RX** (left) and **TX** (right), tablet side: wire the adapter's TX to RX and
-  its RX to TX (swap them if nothing shows up);
+- top, the two tinned pads: **RX** (left) and **TX** (right), named from the board's side and seen as in
+  the photo (back of the board, screen facing down): wire the adapter's TX to RX and its RX to TX;
 - bottom, the tinned pad: **GND**.
 
 > ⚠️ **The untinned gold pad left of GND is +12 V**, not a UART signal. Touching it with an adapter
