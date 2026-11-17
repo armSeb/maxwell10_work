@@ -222,8 +222,9 @@ Pour étudier ce que fait Android (par exemple ses échanges CMBS avec la DVF991
 prépare un accès root depuis postmarketOS. Le build est `user` avec SELinux enforcing : un `su` setuid ne peut pas
 marcher (le domaine `shell` n'a pas le droit de changer d'uid). Mais init lance `/system/etc/macaddress.sh` à chaque
 démarrage par `/system/bin/sh`, donc en root dans le domaine non confiné `init_shell` : le script y fait démarrer
-[rootd](../../tools/android/rootd.c), un démon sur 127.0.0.1:2323 qui n'accepte que root et l'utilisateur `shell`
-d'adb, dont [su](../../tools/android/su.c) est le client. Également installé : un `busybox` statique.
+[rootd](../../tools/android/rootd.c), un démon qui offre des terminaux d'accueil (`/dev/pts/N` à 2000:0 en mode
+0600 : seuls root et l'utilisateur `shell` d'adb peuvent les ouvrir ; `init_shell` n'a pas le droit de créer de
+socket TCP), dont [su](../../tools/android/su.c) est le client. Également installé : un `busybox` statique.
 `init_shell` n'a pas le droit `ptrace` : `strace` n'y marche pas.
 
 ```sh

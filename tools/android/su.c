@@ -1,8 +1,9 @@
 /* su pour l'Android d'origine du Gigaset Maxwell 10 : client de rootd.
  *
  * Un su setuid ne peut pas marcher ici (build « user », SELinux enforcing : le
- * domaine shell n'a pas le droit de changer d'uid). Ce su se connecte à rootd
- * (rootd.c), lancé en root au démarrage, et relaie le terminal.
+ * domaine shell n'a pas le droit de changer d'uid). Ce su ouvre un terminal
+ * d'accueil de rootd (rootd.c, lancé en root au démarrage) : un /dev/pts/N
+ * appartenant à 2000:0 en mode 0600, puis relaie le terminal.
  *
  *   su                 shell root
  *   su -c "commande"   commande root (sortie brute, utilisable dans un tube)
@@ -10,22 +11,51 @@
  *
  * Construction (sous postmarketOS) : gcc -static -Os -o su su.c
  */
-#include <arpa/inet.h>
+#include <dirent.h>
 #include <errno.h>
-#include <netinet/in.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 
-#define PORT 2323
+#define AID_SHELL 2000
 
 static struct termios saved;
-static int raw;
-static void restore(void) { if (raw) tcsetattr(0, TCSANOW, &saved); }
+static int rawmode;
+static void restore(void) { if (rawmode) tcsetattr(0, TCSANOW, &saved); }
+
+static int mine(dev_t d)
+{
+	struct stat st;
+	for (int fd = 0; fd < 3; fd++)
+		if (!fstat(fd, &st) && S_ISCHR(st.st_mode) && st.st_rdev == d) return 1;
+	return 0;
+}
+
+/* un terminal d'accueil libre de rootd */
+static int rendezvous(void)
+{
+	DIR *dp = opendir("/dev/pts");
+	struct dirent *e;
+	int fd = -1;
+	if (!dp) return -1;
+	while (fd < 0 && (e = readdir(dp))) {
+		char p[300]; struct stat st;
+		if (e->d_name[0] < '0' || e->d_name[0] > '9') continue;
+		snprintf(p, sizeof p, "/dev/pts/%s", e->d_name);
+		if (stat(p, &st) || st.st_uid != AID_SHELL || st.st_gid != 0 ||
+		    (st.st_mode & 07777) != 0600 || mine(st.st_rdev)) continue;
+		fd = open(p, O_RDWR | O_NOCTTY);
+		if (fd >= 0 && ioctl(fd, TIOCEXCL) < 0) { close(fd); fd = -1; }
+	}
+	closedir(dp);
+	return fd;
+}
 
 int main(int argc, char **argv)
 {
@@ -47,35 +77,37 @@ int main(int argc, char **argv)
 		return 127;
 	}
 
-	int s = socket(AF_INET, SOCK_STREAM, 0);
-	struct sockaddr_in a = { .sin_family = AF_INET, .sin_port = htons(PORT) };
-	a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-	if (s < 0 || connect(s, (void *)&a, sizeof a)) {
-		fprintf(stderr, "su : rootd injoignable (%s)\n", strerror(errno));
-		return 1;
-	}
-	if (write(s, req, n) != n) return 1;
+	int c = rendezvous();
+	if (c < 0) { fprintf(stderr, "su : rootd injoignable (aucun terminal d'accueil dans /dev/pts)\n"); return 1; }
+	struct termios t;
+	if (!tcgetattr(c, &t)) { cfmakeraw(&t); tcsetattr(c, TCSANOW, &t); }
+	if (write(c, req, n) != n) return 1;
 
 	if (req[0] == 'i' && isatty(0) && !tcgetattr(0, &saved)) {
-		struct termios t = saved;
-		cfmakeraw(&t);
-		tcsetattr(0, TCSANOW, &t);
-		raw = 1;
+		struct termios r = saved;
+		cfmakeraw(&r);
+		tcsetattr(0, TCSANOW, &r);
+		rawmode = 1;
 		atexit(restore);
 	}
-	struct pollfd p[2] = { { 0, POLLIN, 0 }, { s, POLLIN, 0 } };
+	struct pollfd p[2] = { { 0, POLLIN, 0 }, { c, POLLIN, 0 } };
 	char buf[4096];
 	for (;;) {
 		if (poll(p, 2, -1) < 0) { if (errno == EINTR) continue; break; }
 		if (p[1].revents) {
-			ssize_t r = read(s, buf, sizeof buf);
-			if (r <= 0) break;
+			ssize_t r = read(c, buf, sizeof buf);
+			if (r <= 0) break;		/* rootd a fermé : fin de session */
 			if (write(1, buf, r) != r) break;
 		}
 		if (p[0].revents) {
 			ssize_t r = read(0, buf, sizeof buf);
-			if (r <= 0) { shutdown(s, SHUT_WR); p[0].fd = -1; continue; }
-			if (write(s, buf, r) != r) break;
+			if (r <= 0) {		/* fin de notre entrée : ^D au shell */
+				char eof = 4;
+				if (write(c, &eof, 1)) {}
+				p[0].fd = -1;
+				continue;
+			}
+			if (write(c, buf, r) != r) break;
 		}
 	}
 	return 0;

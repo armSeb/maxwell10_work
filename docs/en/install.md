@@ -222,9 +222,10 @@ To study what Android does (for instance its CMBS exchanges with the DVF9919), `
 prepares root access from postmarketOS. The build is `user` with SELinux enforcing, so a setuid `su` cannot
 work (the `shell` domain may not change uid). But init runs `/system/etc/macaddress.sh` at every boot through
 `/system/bin/sh`, i.e. as root in the unconfined `init_shell` domain: the script makes it start
-[rootd](../../tools/android/rootd.c), a daemon on 127.0.0.1:2323 that only accepts root and the adb `shell`
-user, and [su](../../tools/android/su.c) is its client. Also installed: a static `busybox`. `init_shell` has no
-`ptrace` right, so `strace` does not work there.
+[rootd](../../tools/android/rootd.c), a daemon that offers rendezvous terminals (`/dev/pts/N` owned by
+2000:0, mode 0600, so only root and the adb `shell` user can open them; `init_shell` may not create TCP
+sockets), and [su](../../tools/android/su.c) is its client. Also installed: a static `busybox`. `init_shell`
+has no `ptrace` right, so `strace` does not work there.
 
 ```sh
 scp -r tools/android user@172.16.42.1:

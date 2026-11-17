@@ -9,9 +9,10 @@
 # droit de changer d'uid. Mais init lance /system/etc/macaddress.sh (service
 # macaddr_script, à chaque boot) par /system/bin/sh, donc en root dans le domaine
 # non confiné « init_shell ». On y ajoute le lancement de rootd (rootd.c), un
-# démon qui écoute sur 127.0.0.1:2323 et n'accepte que root et l'utilisateur
-# shell d'adb ; su (su.c) est son client. init_shell n'a pas le droit ptrace :
-# strace n'y marche pas.
+# démon qui offre des terminaux d'accueil /dev/pts/N ouvrables seulement par
+# root et l'utilisateur shell d'adb (init_shell n'a pas le droit de créer de
+# socket TCP) ; su (su.c) est son client. init_shell n'a pas non plus le droit
+# ptrace : strace n'y marche pas.
 #
 # Posé dans /system/xbin : su, rootd, busybox (statique, d'Alpine).
 set -eu
