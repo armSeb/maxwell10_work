@@ -162,9 +162,10 @@
 			sound-dai = <&ssi2>;
 			dai-tdm-slot-num = <16>;
 			dai-tdm-slot-width = <16>;
-			/* réception sur 12 mots : Android capture 6 voies à 16 kHz
-			 * (le micro de façade arrive au-delà des mots 0..5) */
-			dai-tdm-slot-tx-mask = <1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0>;
+			/* 12 mots : Android capture 6 voies à 16 kHz (le micro de façade
+			 * arrive au-delà des mots 0..5) ; fsl_ssi synchrone impose le même
+			 * nombre de voies en lecture, dvf99 y envoie des zéros */
+			dai-tdm-slot-tx-mask = <1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0>;
 			dai-tdm-slot-rx-mask = <1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0>;
 		};
 

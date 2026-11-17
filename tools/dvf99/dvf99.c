@@ -1277,15 +1277,20 @@ static void *aud_play(void *arg)
 	(void)arg;
 	static struct jbuf spk, hs, tw;
 	spk.fd = aud_fifo("woofer"); tw.fd = aud_fifo("tweeter"); hs.fd = aud_fifo("handset");
-	int16_t s[2 * AUD_FR], t[2 * AUD_FR], h[2 * AUD_FR], buf[AUD_CH * AUD_FR];
-	int fd = -1;
+	int16_t s[2 * AUD_FR], t[2 * AUD_FR], h[2 * AUD_FR], buf[AUD_CH_CAP * AUD_FR];
+	int fd = -1, nch = AUD_CH_CAP;
 	unsigned long periods = 0, xruns = 0;
 	double stat = now() + 15.0;
 	while (!stop_req) {
 		if (fd < 0) {
 			int c = aud_card();
-			if (c < 0 || (fd = aud_open(c, 0, AUD_CH)) < 0) { sleep(2); continue; }
-			out("audio : lecture ouverte (carte %d, 8 kHz, %d voies)\n", c, AUD_CH);
+			if (c < 0) { sleep(2); continue; }
+			/* fsl_ssi synchrone : lecture et capture ont le même nombre de
+			 * voies ; 12 pour recevoir les mots 6..11, sinon 6 (ancien noyau) */
+			nch = AUD_CH_CAP;
+			if ((fd = aud_open(c, 0, nch)) < 0) fd = aud_open(c, 0, nch = AUD_CH);
+			if (fd < 0) { sleep(2); continue; }
+			out("audio : lecture ouverte (carte %d, 8 kHz, %d voies)\n", c, nch);
 		}
 		if (spk_ready || spk_idle_s <= 0) {
 			jb_take(&spk, s, 2 * AUD_FR);
@@ -1302,8 +1307,9 @@ static void *aud_play(void *arg)
 			memset(s, 0, sizeof s); memset(t, 0, sizeof t);
 		}
 		jb_take(&hs, h, 2 * AUD_FR);
+		memset(buf, 0, sizeof buf);		/* mots 6..11 : rien à envoyer */
 		for (int i = 0; i < AUD_FR; i++) {
-			int16_t *f = buf + AUD_CH * i;
+			int16_t *f = buf + nch * i;
 			if (call_nb) { f[0] = h[2 * i]; f[1] = 0; }	/* 8 kHz : 1 échantillon sur 2 */
 			else { f[0] = h[2 * i]; f[1] = h[2 * i + 1]; }
 			f[2] = t[2 * i] * tweeter_pct / 100; f[3] = t[2 * i + 1] * tweeter_pct / 100;
