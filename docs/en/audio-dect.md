@@ -261,7 +261,9 @@ What Android's ALSA card `dvf9919-audio` reports (`/proc/asound/dvf9919audio/pcm
 | capture, front microphone recording | **6 channels**, 16 kHz, period 80 | **12 TDM words**: the receive side goes past the 6 words our card read |
 
 Since then the `DVF99` card runs 12 TDM words in both directions (`fsl_ssi` in synchronous mode needs
-the same channel count for playback and capture; `dvf99` sends zeros in words 6-11), and `mictest` prints the peaks of every word, flagging those that react to voice.
+the same channel count for playback and capture; `dvf99` sends zeros in words 6-11), and `mictest` prints the peaks of every word, flagging those that react to voice. Result (kernel #23, the
+five `mictest` routings): **no word 0..11 reacts**; word 0 stays at a constant 256, the others at 0 or 1. The
+microphone samples do not reach the TDM bus at all, something is missing on the DVF9919 side.
 
 ## `dvf99` reference
 

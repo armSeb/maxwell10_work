@@ -272,7 +272,9 @@ La carte ALSA `dvf9919-audio` d'Android (`/proc/asound/dvf9919audio/pcm0*/sub0/h
 | capture, enregistrement par le micro de façade | **6 voies**, 16 kHz, période 80 | **12 mots TDM** : la réception va au-delà des 6 mots que lisait notre carte |
 
 Depuis, la carte `DVF99` travaille sur 12 mots TDM dans les deux sens (`fsl_ssi` en mode synchrone
-impose le même nombre de voies en lecture et en capture ; `dvf99` envoie des zéros dans les mots 6-11), et `mictest` affiche la crête de chaque mot en signalant ceux qui réagissent à la voix.
+impose le même nombre de voies en lecture et en capture ; `dvf99` envoie des zéros dans les mots 6-11), et `mictest` affiche la crête de chaque mot en signalant ceux qui réagissent à la voix. Résultat (noyau #23,
+les cinq routages de `mictest`) : **aucun mot 0..11 ne réagit** ; le mot 0 reste à 256 constant, les autres à 0
+ou 1. Les échantillons du micro n'arrivent pas du tout sur le TDM, il manque quelque chose côté DVF9919.
 
 ## Référence de `dvf99`
 
