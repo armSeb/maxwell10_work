@@ -11,7 +11,6 @@
  *
  * Construction (sous postmarketOS) : gcc -static -Os -o su su.c
  */
-#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -37,23 +36,22 @@ static int mine(dev_t d)
 	return 0;
 }
 
-/* un terminal d'accueil libre de rootd */
+/* un terminal d'accueil libre de rootd. shell peut traverser /dev/pts et
+ * ouvrir un terminal par son nom, mais pas lister le dossier : on essaie les
+ * numéros un par un */
 static int rendezvous(void)
 {
-	DIR *dp = opendir("/dev/pts");
-	struct dirent *e;
-	int fd = -1;
-	if (!dp) return -1;
-	while (fd < 0 && (e = readdir(dp))) {
-		char p[300]; struct stat st;
-		if (e->d_name[0] < '0' || e->d_name[0] > '9') continue;
-		snprintf(p, sizeof p, "/dev/pts/%s", e->d_name);
-		if (stat(p, &st) || st.st_uid != AID_SHELL || st.st_gid != 0 ||
+	int fd = -1, miss = 0;
+	for (int i = 0; fd < 0 && i < 1024 && miss < 64; i++) {
+		char p[32]; struct stat st;
+		snprintf(p, sizeof p, "/dev/pts/%d", i);
+		if (stat(p, &st)) { miss++; continue; }
+		miss = 0;
+		if (st.st_uid != AID_SHELL || st.st_gid != 0 ||
 		    (st.st_mode & 07777) != 0600 || mine(st.st_rdev)) continue;
 		fd = open(p, O_RDWR | O_NOCTTY);
 		if (fd >= 0 && ioctl(fd, TIOCEXCL) < 0) { close(fd); fd = -1; }
 	}
-	closedir(dp);
 	return fd;
 }
 
@@ -78,7 +76,7 @@ int main(int argc, char **argv)
 	}
 
 	int c = rendezvous();
-	if (c < 0) { fprintf(stderr, "su : rootd injoignable (aucun terminal d'accueil dans /dev/pts)\n"); return 1; }
+	if (c < 0) { fprintf(stderr, "su : rootd injoignable (aucun terminal d'accueil libre dans /dev/pts)\n"); return 1; }
 	struct termios t;
 	if (!tcgetattr(c, &t)) { cfmakeraw(&t); tcsetattr(c, TCSANOW, &t); }
 	if (write(c, req, n) != n) return 1;
