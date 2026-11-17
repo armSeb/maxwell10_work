@@ -216,6 +216,20 @@ Bluetooth chip are not reset by a warm reboot.
   saveenv
   ```
 
+## Root on the original Android
+
+To study what Android does (for instance its CMBS exchanges with the DVF9919), `tools/android/android-root.sh`
+puts into the Android system partition of the eMMC, from postmarketOS: a minimal `su` (setuid root, only for
+root and the adb `shell` user, [su.c](../../tools/android/su.c)), a static `busybox` and `strace`.
+
+```sh
+scp -r tools/android user@172.16.42.1:
+ssh user@172.16.42.1 sudo ./android/android-root.sh            # --remove to take it out
+```
+
+Under Android: `adb shell`, then `su`. Check `getenforce`: with SELinux enforcing, `su` gives uid 0 but stays in
+the `shell` domain, which limits what it can open.
+
 ## Troubleshooting
 
 | Symptom (serial console) | Cause and fix |

@@ -216,6 +216,20 @@ la base DECT et la puce Bluetooth ne sont pas réinitialisées par un redémarra
   saveenv
   ```
 
+## Root sur l'Android d'origine
+
+Pour étudier ce que fait Android (par exemple ses échanges CMBS avec la DVF9919), `tools/android/android-root.sh`
+dépose dans la partition système Android de l'eMMC, depuis postmarketOS : un `su` minimal (setuid root, réservé
+à root et à l'utilisateur `shell` d'adb, [su.c](../../tools/android/su.c)), un `busybox` statique et `strace`.
+
+```sh
+scp -r tools/android user@172.16.42.1:
+ssh user@172.16.42.1 sudo ./android/android-root.sh            # --remove pour tout retirer
+```
+
+Sous Android : `adb shell`, puis `su`. Vérifier `getenforce` : en SELinux « enforcing », `su` donne l'uid 0 mais
+reste dans le domaine `shell`, ce qui limite ce qu'il peut ouvrir.
+
 ## Dépannage
 
 | Symptôme (console série) | Cause et solution |
