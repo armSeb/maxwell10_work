@@ -1567,8 +1567,12 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 			channel_start(fd, d, tweeter, tw, 1);
 	}
 
-	out("7) ampli du haut-parleur (GPIO D10 de la DVF99)\n");
-	spk_amp(fd, d, 1);
+	/* anti-clac : en service, l'ampli n'est allumé qu'une fois le flux TDM
+	 * (silence) en route et les sorties stabilisées, voir plus bas */
+	if (!keep) {
+		out("7) ampli du haut-parleur (GPIO D10 de la DVF99)\n");
+		spk_amp(fd, d, 1);
+	}
 
 	if (dac && tone >= 0) {
 		uint8_t b[32]; unsigned n;
@@ -1587,6 +1591,9 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 	if (keep) {
 		out("9) -k : chemin laissé ouvert (Ctrl-C pour quitter, la DVF99 garde l'état)\n");
 		audio_start();
+		read_for(fd, d, 0.7);	/* sorties AFE et TDM stabilisées avant l'ampli (clac) */
+		out("7) ampli du haut-parleur (GPIO D10 de la DVF99)\n");
+		spk_amp(fd, d, 1);
 		struct sigaction sa = { 0 };
 		sa.sa_handler = on_stop;
 		sigaction(SIGTERM, &sa, NULL);
@@ -1644,6 +1651,7 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 
 	out("9) libération\n");
 	spk_amp(fd, d, 0);
+	read_for(fd, d, 0.3);	/* ampli coupé avant de toucher aux sorties (clac) */
 	afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, o2, "AFE_ENDPOINT_DISABLE");
 	if (woofer_mode) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, o3, "AFE_ENDPOINT_DISABLE");
 	if (inamp >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, inamp, "AFE_ENDPOINT_DISABLE");
