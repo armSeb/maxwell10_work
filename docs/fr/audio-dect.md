@@ -273,6 +273,14 @@ linéaire 16 bits, 16 kHz sur les mots 0-1** (seul `mictest`, sans eux, n'avait 
 `-Y N` est un gain numérique (défaut 1, 0 = coupé). Pendant un appel du combiné, il ferme le canal du micro, qui utilise les mêmes
 slots, et le rouvre ensuite.
 
+### Batterie du combiné
+
+L'événement 274 (données Gigaset) porte, dans son IE 32, `81 05 05 01 02 S N` : **S** = 1 quand le combiné est
+posé sur son socle (raccroché, donc en charge), 0 décroché ; **N** = niveau de batterie en % (vu monter de 86 à
+93 % sur le socle en quelques heures). `dvf99` les recopie dans la batterie `dvf99-handset` du patch noyau 0006
+(`capacity`, `status` Charging/Full/Discharging, `present`), qu'UPower et Phosh affichent comme une batterie ;
+l'alimentation secteur `dvf99-mains`, toujours présente, évite toute action système sur batterie faible du combiné.
+
 ### Format TDM
 
 Mesuré avec [tools/debug/ssireg](../../tools/debug/ssireg/ssireg.c) : 8000 trames/s, synchro de trame en

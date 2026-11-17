@@ -469,6 +469,39 @@ static const uint8_t *ie_find(const uint8_t *p, unsigned n, unsigned type, unsig
  */
 static void call_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n);
 
+/* Batterie du combiné. L'événement 274 (données propres à Gigaset) porte dans
+ * son IE 32 (DATA, u16 longueur + octets) « 81 05 05 01 02 S N » : S = 1 combiné
+ * posé sur son socle (raccroché, donc en charge), 0 décroché ; N = niveau de
+ * batterie en %. On le recopie dans la batterie « dvf99-handset » du pilote
+ * noyau (patch 0006), que le système affiche comme une batterie ordinaire. */
+#define HS_BAT_SYSFS	"/sys/class/power_supply/dvf99-handset/"
+static void hs_bat_write(const char *attr, const char *val)
+{
+	int fd = open(attr, O_WRONLY);
+	if (fd < 0) return;
+	if (write(fd, val, strlen(val)) < 0) { /* pilote absent ou valeur refusée */ }
+	close(fd);
+}
+
+static void hs_battery(const uint8_t *p, unsigned n)
+{
+	static int last_level = -1, last_cradle = -1;
+	unsigned l;
+	const uint8_t *v = ie_find(p, n, 32, &l);
+	if (!v || l < 9 || v[2] != 0x81 || v[3] != 0x05 || v[4] != 0x05) return;
+	int cradle = v[7], level = v[8];
+	if (cradle > 1 || level > 100) return;
+	if (level == last_level && cradle == last_cradle) return;
+	char b[8];
+	snprintf(b, sizeof b, "%d", level);
+	hs_bat_write(HS_BAT_SYSFS "capacity", b);
+	hs_bat_write(HS_BAT_SYSFS "status", !cradle ? "Discharging" : level >= 100 ? "Full" : "Charging");
+	if (last_level < 0) hs_bat_write(HS_BAT_SYSFS "present", "1");
+	if (level != last_level || cradle != last_cradle)
+		out("combiné : batterie %d %%, %s\n", level, cradle ? "sur son socle (en charge)" : "décroché");
+	last_level = level; last_cradle = cradle;
+}
+
 static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n)
 {
 	if (d->want && ev == d->want) {
@@ -477,7 +510,7 @@ static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned 
 		d->want_seen = 1;
 	}
 	if (ev == EV_TARGET_UP) d->target_ups++;
-	if (ev == 274) d->hs_events++;
+	if (ev == 274) { d->hs_events++; if (d->fd >= 0) hs_battery(p, n); }
 	if (ev == CMD_HELLO_RPLY) {
 		d->hello_len = n < sizeof d->hello ? n : sizeof d->hello;
 		memcpy(d->hello, p, d->hello_len);

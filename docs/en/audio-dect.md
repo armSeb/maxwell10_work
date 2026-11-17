@@ -264,6 +264,14 @@ PCM, 16 kHz on words 0-1** (only `mictest`, without them, got the high byte of w
 gain (default 1, 0 = off). During a handset call it closes the microphone channel, which uses the same
 slots, and reopens it afterwards.
 
+### Handset battery
+
+Event 274 (Gigaset data) carries, in its IE 32, `81 05 05 01 02 S N`: **S** = 1 when the handset sits on its
+cradle (on hook, hence charging), 0 when lifted; **N** = battery level in % (seen rising from 86 to 93 % on the
+cradle over a few hours). `dvf99` copies them into the `dvf99-handset` battery of kernel patch 0006
+(`capacity`, `status` Charging/Full/Discharging, `present`), which UPower and Phosh show as a battery; the
+always-online `dvf99-mains` supply keeps the system from acting on a low handset battery.
+
 ### TDM format
 
 Measured with [tools/debug/ssireg](../../tools/debug/ssireg/ssireg.c): 8000 frames/s, frame sync is a

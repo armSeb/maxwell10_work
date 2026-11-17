@@ -74,6 +74,7 @@ et installer avec `pmbootstrap sideload` (voir [install.md](install.md#mettre-à
 | `0003-ASoC-DVF9919-TDM-PCM-link` | codec factice pour la liaison TDM de la DVF9919 (8 kHz, 6 voies) ; garde `fsl_ssi` en mode réseau |
 | `0004-media-i2c-add-OmniVision-OV9740-driver` | pilote de sous-périphérique V4L2 de l'OV9740 |
 | `0005-Bluetooth-hci_ath-skip-broken-LE-Read-Supported-States` | le firmware de l'AR3002 répond à cette commande avec 5 octets au lieu de 9, ce qui faisait échouer `HCIDEVUP` |
+| `0006-power-supply-add-the-Gigaset-Maxwell-10-DECT-handset-battery` | la tablette n'a pas de batterie mais son combiné DECT si : une batterie `dvf99-handset` (niveau, état, présence écrits par `dvf99`) et une alimentation secteur `dvf99-mains` toujours présente, pour que le système affiche le combiné comme une batterie ordinaire sans jamais déclencher d'action « batterie faible » |
 
 La configuration `config-gigaset-maxwell10.armv7` est `imx_v6_v7_defconfig` plus
 [maxwell10.fragment](../../pmos/linux-gigaset-maxwell10/maxwell10.fragment) (démarrage par `go`,

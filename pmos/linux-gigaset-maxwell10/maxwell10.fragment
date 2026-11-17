@@ -163,3 +163,6 @@ CONFIG_SND_SOC_DVF9919=y
 
 # Caméra OV9740 (patch 0004), en module pour pouvoir changer link_freq_mhz
 CONFIG_VIDEO_OV9740=m
+
+# --- Batterie du combiné DECT (patch 0006, alimentée par dvf99) ---
+CONFIG_BATTERY_DVF99_HANDSET=y

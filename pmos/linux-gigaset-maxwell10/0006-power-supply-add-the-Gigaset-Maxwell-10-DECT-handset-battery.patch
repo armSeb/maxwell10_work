@@ -1,0 +1,192 @@
+From: Maxwell 10 port
+Subject: [PATCH] power: supply: add the Gigaset Maxwell 10 DECT handset battery
+
+The tablet has no battery, its DECT handset does. The DVF9919 base reports
+the handset level and cradle state in a Gigaset proprietary CMBS event,
+decoded in user space by dvf99. Register a battery whose capacity, status
+and presence dvf99 writes through sysfs, so that the system shows it like
+any battery, and an always-online mains supply so that user space never
+takes a low-battery action because of the handset.
+---
+diff -Naur a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
+--- a/drivers/power/supply/Kconfig
++++ b/drivers/power/supply/Kconfig
+@@ -83,6 +83,14 @@
+ 	help
+ 	  This driver is used for testing. It's safe to say M here.
+ 
++config BATTERY_DVF99_HANDSET
++	tristate "Gigaset Maxwell 10 DECT handset battery"
++	help
++	  Exposes the battery of the DECT handset of the Gigaset Maxwell 10,
++	  as reported by its DSPG DVF9919 base, as a power supply that the
++	  dvf99 user space daemon fills through sysfs, plus an always-online
++	  mains supply for the mains-powered tablet.
++
+ config BATTERY_88PM860X
+ 	tristate "Marvell 88PM860x battery driver"
+ 	depends on MFD_88PM860X
+diff -Naur a/drivers/power/supply/Makefile b/drivers/power/supply/Makefile
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ -17,6 +17,7 @@
+ obj-$(CONFIG_WM831X_POWER)	+= wm831x_power.o
+ obj-$(CONFIG_WM8350_POWER)	+= wm8350_power.o
+ obj-$(CONFIG_TEST_POWER)	+= test_power.o
++obj-$(CONFIG_BATTERY_DVF99_HANDSET)	+= dvf99_handset.o
+ 
+ obj-$(CONFIG_BATTERY_88PM860X)	+= 88pm860x_battery.o
+ obj-$(CONFIG_CHARGER_ADP5061)	+= adp5061.o
+diff -Naur a/drivers/power/supply/dvf99_handset.c b/drivers/power/supply/dvf99_handset.c
+--- /dev/null
++++ b/drivers/power/supply/dvf99_handset.c
+@@ -0,0 +1,149 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Battery of the DECT handset of the Gigaset Maxwell 10.
++ *
++ * The tablet has no battery; its DECT handset does, and the DSPG DVF9919 base
++ * reports its level and whether it sits on its charging cradle in a Gigaset
++ * proprietary CMBS event, handled in user space by the dvf99 daemon. This
++ * driver only exposes two power supplies that dvf99 fills through sysfs:
++ *
++ *   dvf99-handset  battery: capacity, status, present (writable by root)
++ *   dvf99-mains    mains, always online: the tablet is mains powered, so
++ *                  user space (UPower) never takes a low-battery action
++ *                  because of the handset.
++ */
++#include <linux/module.h>
++#include <linux/power_supply.h>
++
++static int capacity = 0;
++static int status = POWER_SUPPLY_STATUS_UNKNOWN;
++static int present;
++
++static struct power_supply *battery, *mains;
++
++static enum power_supply_property battery_props[] = {
++	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_PRESENT,
++	POWER_SUPPLY_PROP_CAPACITY,
++	POWER_SUPPLY_PROP_SCOPE,
++	POWER_SUPPLY_PROP_TECHNOLOGY,
++	POWER_SUPPLY_PROP_MODEL_NAME,
++	POWER_SUPPLY_PROP_MANUFACTURER,
++};
++
++static int battery_get(struct power_supply *psy, enum power_supply_property psp,
++		       union power_supply_propval *val)
++{
++	switch (psp) {
++	case POWER_SUPPLY_PROP_STATUS:
++		val->intval = present ? status : POWER_SUPPLY_STATUS_UNKNOWN;
++		break;
++	case POWER_SUPPLY_PROP_PRESENT:
++		val->intval = present;
++		break;
++	case POWER_SUPPLY_PROP_CAPACITY:
++		val->intval = capacity;
++		break;
++	case POWER_SUPPLY_PROP_SCOPE:
++		val->intval = POWER_SUPPLY_SCOPE_SYSTEM;
++		break;
++	case POWER_SUPPLY_PROP_TECHNOLOGY:
++		val->intval = POWER_SUPPLY_TECHNOLOGY_UNKNOWN;
++		break;
++	case POWER_SUPPLY_PROP_MODEL_NAME:
++		val->strval = "DECT handset";
++		break;
++	case POWER_SUPPLY_PROP_MANUFACTURER:
++		val->strval = "Gigaset";
++		break;
++	default:
++		return -EINVAL;
++	}
++	return 0;
++}
++
++static int battery_set(struct power_supply *psy, enum power_supply_property psp,
++		       const union power_supply_propval *val)
++{
++	switch (psp) {
++	case POWER_SUPPLY_PROP_STATUS:
++		if (val->intval < POWER_SUPPLY_STATUS_UNKNOWN ||
++		    val->intval > POWER_SUPPLY_STATUS_FULL)
++			return -EINVAL;
++		status = val->intval;
++		break;
++	case POWER_SUPPLY_PROP_PRESENT:
++		present = !!val->intval;
++		break;
++	case POWER_SUPPLY_PROP_CAPACITY:
++		if (val->intval < 0 || val->intval > 100)
++			return -EINVAL;
++		capacity = val->intval;
++		break;
++	default:
++		return -EINVAL;
++	}
++	power_supply_changed(psy);
++	return 0;
++}
++
++static int battery_writeable(struct power_supply *psy, enum power_supply_property psp)
++{
++	return psp == POWER_SUPPLY_PROP_STATUS || psp == POWER_SUPPLY_PROP_PRESENT ||
++	       psp == POWER_SUPPLY_PROP_CAPACITY;
++}
++
++static const struct power_supply_desc battery_desc = {
++	.name = "dvf99-handset",
++	.type = POWER_SUPPLY_TYPE_BATTERY,
++	.properties = battery_props,
++	.num_properties = ARRAY_SIZE(battery_props),
++	.get_property = battery_get,
++	.set_property = battery_set,
++	.property_is_writeable = battery_writeable,
++};
++
++static enum power_supply_property mains_props[] = {
++	POWER_SUPPLY_PROP_ONLINE,
++};
++
++static int mains_get(struct power_supply *psy, enum power_supply_property psp,
++		     union power_supply_propval *val)
++{
++	if (psp != POWER_SUPPLY_PROP_ONLINE)
++		return -EINVAL;
++	val->intval = 1;
++	return 0;
++}
++
++static const struct power_supply_desc mains_desc = {
++	.name = "dvf99-mains",
++	.type = POWER_SUPPLY_TYPE_MAINS,
++	.properties = mains_props,
++	.num_properties = ARRAY_SIZE(mains_props),
++	.get_property = mains_get,
++};
++
++static int __init dvf99_handset_init(void)
++{
++	mains = power_supply_register(NULL, &mains_desc, NULL);
++	if (IS_ERR(mains))
++		return PTR_ERR(mains);
++	battery = power_supply_register(NULL, &battery_desc, NULL);
++	if (IS_ERR(battery)) {
++		power_supply_unregister(mains);
++		return PTR_ERR(battery);
++	}
++	return 0;
++}
++module_init(dvf99_handset_init);
++
++static void __exit dvf99_handset_exit(void)
++{
++	power_supply_unregister(battery);
++	power_supply_unregister(mains);
++}
++module_exit(dvf99_handset_exit);
++
++MODULE_DESCRIPTION("Gigaset Maxwell 10 DECT handset battery, fed by the dvf99 daemon");
++MODULE_LICENSE("GPL");

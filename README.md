@@ -28,6 +28,7 @@ can drive from Linux.
 | DECT handset: earpiece, microphone, hook events | ✅ | audio path only, no telephony stack yet |
 | Camera (OmniVision OV9740) | ✅ | 1280×720 / 640×480, 30 fps |
 | Hardware video codec (CODA960 VPU) | 🧪 | firmware (copied from Android) loads, V4L2 codec nodes registered; decoding not tested yet |
+| Handset battery | 🟡 | shown as the system battery (kernel patch 0006 + dvf99), to be validated |
 | Front microphone | ✅ | PulseAudio input « Micro de façade » (default), 16 kHz; muted during a handset call |
 | HDMI, ambient light sensor | ⏳ | not done |
 
