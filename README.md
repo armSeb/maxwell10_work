@@ -24,7 +24,7 @@ can drive from Linux.
 | Bluetooth (Atheros AR3002) | ✅ | scan, pairing, A2DP |
 | USB OTG (gadget networking) | ✅ | `ssh user@172.16.42.1` |
 | USB host (2 type-A ports) | 🧪 | |
-| Speaker (DVF9919 woofer + tweeter) | ✅ | PulseAudio output, sleeps when idle |
+| Speaker (DVF9919: woofer + 2 tweeters, mono) | ✅ | PulseAudio outputs Haut-parleurs, Woofer, Tweeters; sleeps when idle |
 | DECT handset: earpiece, microphone, hook events | ✅ | audio path only, no telephony stack yet |
 | Camera (OmniVision OV9740) | ✅ | 1280×720 / 640×480, 30 fps |
 | Hardware video codec (CODA960 VPU) | 🧪 | firmware (copied from Android) loads, V4L2 codec nodes registered; decoding not tested yet |

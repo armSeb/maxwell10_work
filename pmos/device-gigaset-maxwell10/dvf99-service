@@ -2,9 +2,10 @@
 # Started by dvf99.service. Optional settings in /etc/default/dvf99:
 #   DVF99_NVRAM=/var/lib/dvf99/nvram.bin   emulated EEPROM of the DECT base (pairings, RF identity)
 #   DVF99_GAIN=32                          speaker gain: 32 = 0 dB … 36 = -24 dB
-#   DVF99_TWEETER=50                       tweeter level in % (treble clips at 100)
+#   DVF99_TWEETER=50                       tweeter level in % of its stream (headroom, treble clips at 100)
 #   DVF99_OPTS=                            extra dvf99 options, e.g. -N (no auto-answer),
-#                                          -Z 30 (speaker sleep after 30 s of silence, -Z 0: never)
+#                                          -Z 30 (speaker sleep after 30 s of silence, -Z 0: never),
+#                                          -B 1 (woofer on AMP_OUT2+OUT3 in phase, default OUT2 only)
 nv=${DVF99_NVRAM:-/var/lib/dvf99/nvram.bin}
 
 # First boot: import the base EEPROM from the untouched Android data partition

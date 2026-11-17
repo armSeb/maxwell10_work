@@ -24,7 +24,7 @@ DECT piloté depuis Linux.
 | Bluetooth (Atheros AR3002) | ✅ | recherche, appairage, A2DP |
 | USB OTG (réseau USB) | ✅ | `ssh user@172.16.42.1` |
 | USB hôte (2 ports type A) | 🧪 | |
-| Haut-parleur (DVF9919 woofer + tweeter) | ✅ | sortie PulseAudio, mise en veille au repos |
+| Haut-parleur (DVF9919 : woofer + 2 tweeters, mono) | ✅ | sorties PulseAudio Haut-parleurs, Woofer, Tweeters ; veille au repos |
 | Combiné DECT : écouteur, micro, décroché | ✅ | chemin audio seulement, pas encore de pile téléphonique |
 | Caméra (OmniVision OV9740) | ✅ | 1280×720 / 640×480, 30 i/s |
 | Codec vidéo matériel (VPU CODA960) | 🧪 | le firmware (copié d'Android) se charge, nœuds V4L2 du codec présents ; décodage pas encore testé |

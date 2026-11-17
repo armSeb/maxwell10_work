@@ -58,8 +58,21 @@ tubes nommés dans `/run/dvf99` :
 | Mots TDM (masque CMBS) | Canal CMBS | Voies ALSA | Tube → périphérique PulseAudio |
 |---|---|---|---|
 | 0-1 (`0x000F`) | appel du combiné | 0, 1 | `handset` → sortie **Combiné** ; capture → `mic` → entrée **Micro du combiné** |
-| 2-3 (`0x00F0`) | tweeter (classe D) | 2, 3 | copie du flux haut-parleur à `DVF99_TWEETER` % |
-| 4-5 (`0x0F00`) | woofer (AMP_OUT2/3 en pont) | 4, 5 | `speaker` → sortie **Haut-parleur** (défaut) |
+| 2-3 (`0x00F0`) | tweeters (classe D) | 2, 3 | `tweeter` → sortie **Tweeters**, à `DVF99_TWEETER` % |
+| 4-5 (`0x0F00`) | woofer (AMP_OUT2) | 4, 5 | `woofer` → sortie **Woofer** |
+
+La sortie par défaut **Haut-parleurs** est un `module-combine-sink` de **Woofer** et **Tweeters** : les
+volumes de ces deux sorties dans le mixeur règlent donc la balance grave/aigu.
+
+Câblage relevé avec `dvf99 outtest` :
+
+- les **deux petits haut-parleurs** du bas sont câblés ensemble sur la **classe D** : ils jouent le même
+  signal, la stéréo est impossible sans modifier le matériel ;
+- le **woofer** sonne fort avec AMP_OUT2 seule ou AMP_OUT3 seule, mais tout faible avec le pont
+  OUT2 ← DAC0 / OUT3 ← DAC0_INV qu'utilise Android : les deux sorties semblent sommées avant l'ampli du
+  woofer, et l'inversion s'annule. `dvf99` n'utilise donc qu'AMP_OUT2 (`-B 1` : OUT2 + OUT3 en phase,
+  `-B 2` : le pont d'Android) ;
+- AMP_OUT0/1 (avec ou sans GPIO D11) : aucun son sur les haut-parleurs.
 
 - Chaque tube de sortie a un tampon de gigue (démarre après 60 ms de données, jette l'excédent au-delà
   de 200 ms).

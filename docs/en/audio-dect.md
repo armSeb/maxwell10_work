@@ -57,8 +57,21 @@ streams. It exchanges 16 kHz mono S16 streams with PulseAudio through named pipe
 | TDM words (CMBS mask) | CMBS channel | ALSA channels | Pipe → PulseAudio device |
 |---|---|---|---|
 | 0-1 (`0x000F`) | handset call | 0, 1 | `handset` → output **Combiné**; capture → `mic` → input **Micro du combiné** |
-| 2-3 (`0x00F0`) | tweeter (class D) | 2, 3 | copy of the speaker stream at `DVF99_TWEETER` % |
-| 4-5 (`0x0F00`) | woofer (AMP_OUT2/3 bridged) | 4, 5 | `speaker` → output **Haut-parleur** (default) |
+| 2-3 (`0x00F0`) | tweeters (class D) | 2, 3 | `tweeter` → output **Tweeters**, at `DVF99_TWEETER` % |
+| 4-5 (`0x0F00`) | woofer (AMP_OUT2) | 4, 5 | `woofer` → output **Woofer** |
+
+The default output **Haut-parleurs** is a `module-combine-sink` of **Woofer** and **Tweeters**, so the
+volumes of these two outputs in the mixer set the bass/treble balance.
+
+Wiring found with `dvf99 outtest`:
+
+- the **two small speakers** at the bottom are wired together on the **class D**: they play the same
+  signal, stereo is impossible without a hardware change;
+- the **woofer** is loud with AMP_OUT2 alone or AMP_OUT3 alone, but very faint with the
+  OUT2 ← DAC0 / OUT3 ← DAC0_INV bridge Android uses: both outputs seem summed before the woofer
+  amplifier, and the inversion cancels out. `dvf99` therefore only uses AMP_OUT2 (`-B 1`: OUT2 + OUT3
+  in phase, `-B 2`: Android's bridge);
+- AMP_OUT0/1 (with or without GPIO D11): no sound on the speakers.
 
 - Each output pipe has a jitter buffer (starts after 60 ms of data, drops anything beyond 200 ms).
 - **Speaker sleep**: after `-Z` seconds (default 5) without a non-zero sample, `dvf99` switches the woofer

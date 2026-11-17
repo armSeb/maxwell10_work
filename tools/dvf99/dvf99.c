@@ -1088,7 +1088,7 @@ static volatile sig_atomic_t stop_req;
  * Un flux PCM linéaire 16 kHz y occupe deux mots consécutifs (deux échantillons
  * successifs) : appel = voies 0-1, tweeter = 2-3, woofer = 4-5. Ce découpage ne
  * s'exprime pas en ALSA ; dvf99 le fait ici et offre à PulseAudio des tubes
- * nommés mono 16 kHz S16 : /run/dvf99/speaker et /run/dvf99/handset (sorties,
+ * nommés mono 16 kHz S16 : /run/dvf99/woofer, tweeter et handset (sorties,
  * module-pipe-sink), /run/dvf99/mic (micro du combiné, module-pipe-source).
  * Accès ALSA direct par ioctl (HW/SW_PARAMS, WRITEI/READI) : ni alsa-lib ni
  * tinyalsa, dont la lecture de l'état mmapé est fausse en armv7 time64. */
@@ -1101,6 +1101,7 @@ static volatile sig_atomic_t stop_req;
 #define AUD_FR		160		/* trames 8 kHz par période (20 ms) */
 #define AUD_PERIODS	4
 #define AUD_CH		6
+static int woofer_mode = 0;		/* -B : câblage du woofer, voir mode_speaker */
 static int tweeter_pct = 50;		/* -X : niveau du tweeter en % (écrêtage des aigus à 100) */
 static int audio_on;			/* -A */
 static int audio_nomic;			/* -M : pas de capture (micro du combiné) */
@@ -1273,9 +1274,9 @@ static int aud_xfer(int fd, int capture, int16_t *buf, unsigned long *xruns)
 static void *aud_play(void *arg)
 {
 	(void)arg;
-	static struct jbuf spk, hs;
-	spk.fd = aud_fifo("speaker"); hs.fd = aud_fifo("handset");
-	int16_t s[2 * AUD_FR], h[2 * AUD_FR], buf[AUD_CH * AUD_FR];
+	static struct jbuf spk, hs, tw;
+	spk.fd = aud_fifo("woofer"); tw.fd = aud_fifo("tweeter"); hs.fd = aud_fifo("handset");
+	int16_t s[2 * AUD_FR], t[2 * AUD_FR], h[2 * AUD_FR], buf[AUD_CH * AUD_FR];
 	int fd = -1;
 	unsigned long periods = 0, xruns = 0;
 	double stat = now() + 15.0;
@@ -1287,21 +1288,24 @@ static void *aud_play(void *arg)
 		}
 		if (spk_ready || spk_idle_s <= 0) {
 			jb_take(&spk, s, 2 * AUD_FR);
+			jb_take(&tw, t, 2 * AUD_FR);
 			for (int i = 0; i < 2 * AUD_FR; i++)
-				if (s[i] >= SPK_FLOOR || s[i] <= -SPK_FLOOR) { spk_loud_ms = now_ms(); break; }
+				if (s[i] >= SPK_FLOOR || s[i] <= -SPK_FLOOR ||
+				    t[i] >= SPK_FLOOR || t[i] <= -SPK_FLOOR) { spk_loud_ms = now_ms(); break; }
 		} else {
 			/* en veille : on garde le son pour le réveil, le silence est jeté */
-			jb_fill(&spk);
-			if (jb_has_sound(&spk)) spk_loud_ms = now_ms();
-			spk.primed = 0;
-			memset(s, 0, sizeof s);
+			jb_fill(&spk); jb_fill(&tw);
+			int a = jb_has_sound(&spk), b = jb_has_sound(&tw);
+			if (a || b) spk_loud_ms = now_ms();
+			spk.primed = tw.primed = 0;
+			memset(s, 0, sizeof s); memset(t, 0, sizeof t);
 		}
 		jb_take(&hs, h, 2 * AUD_FR);
 		for (int i = 0; i < AUD_FR; i++) {
 			int16_t *f = buf + AUD_CH * i;
 			if (call_nb) { f[0] = h[2 * i]; f[1] = 0; }	/* 8 kHz : 1 échantillon sur 2 */
 			else { f[0] = h[2 * i]; f[1] = h[2 * i + 1]; }
-			f[2] = s[2 * i] * tweeter_pct / 100; f[3] = s[2 * i + 1] * tweeter_pct / 100;
+			f[2] = t[2 * i] * tweeter_pct / 100; f[3] = t[2 * i + 1] * tweeter_pct / 100;
 			f[4] = s[2 * i]; f[5] = s[2 * i + 1];
 			if (audio_probe >= 0) {
 				memset(f, 0, AUD_CH * 2);
@@ -1394,8 +1398,8 @@ static void audio_start(void)
 	 * on les retire au démarrage pour repartir de tubes à nous (sorties) ou
 	 * à créer par la session de l'utilisateur (micro). Utilisateurs système
 	 * seulement (uid < 1000) : jamais ceux d'une session en cours. */
-	static const char *const names[] = { "speaker", "handset", "mic" };
-	for (int i = 0; i < 3; i++) {
+	static const char *const names[] = { "woofer", "tweeter", "handset", "mic" };
+	for (int i = 0; i < 4; i++) {
 		char path[64];
 		struct stat st;
 		snprintf(path, sizeof path, AUD_DIR "/%s", names[i]);
@@ -1404,7 +1408,8 @@ static void audio_start(void)
 			unlink(path);
 		}
 	}
-	close(aud_fifo("speaker")); close(aud_fifo("handset"));
+	unlink(AUD_DIR "/speaker");	/* ancien tube unique (avant woofer/tweeter séparés) */
+	close(aud_fifo("woofer")); close(aud_fifo("tweeter")); close(aud_fifo("handset"));
 	/* module-pipe-source, lui, refuse un tube existant (mkfifo sans EEXIST) :
 	 * c'est PulseAudio qui crée /run/dvf99/mic, d'où le répertoire 1777, et
 	 * dvf99 l'ouvre quand il apparaît (aud_mic_fd). Un ancien tube créé par
@@ -1459,12 +1464,19 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 
 	out("5) canal woofer\n");
 	if (afe_alloc(fd, d, &woofer, 0)) return 4;
+	/* -B : 0 = AMP_OUT2 seule (défaut), 1 = OUT2 + OUT3 en phase, 2 = pont
+	 * OUT2/OUT3 inversée comme Android. outtest : OUT2 seule ou OUT3 seule
+	 * donnent le woofer fort, le pont d'Android tout faible (les deux sorties
+	 * semblent sommées avant l'ampli du woofer, l'inversion s'annule). */
 	afe_connect(fd, d, o2, src);
-	afe_connect(fd, d, o3, dac ? AFE_AMPOUT_IN_DAC0_INV : AFE_AMPOUT_IN_MUTE);
 	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, o2, "AFE_ENDPOINT_ENABLE");
-	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, o3, "AFE_ENDPOINT_ENABLE");
 	set_gain(fd, d, o2, gain);
-	set_gain(fd, d, o3, gain);
+	if (woofer_mode) {
+		afe_connect(fd, d, o3, !dac ? AFE_AMPOUT_IN_MUTE :
+			    woofer_mode == 2 ? AFE_AMPOUT_IN_DAC0_INV : AFE_AMPOUT_IN_DAC0);
+		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, o3, "AFE_ENDPOINT_ENABLE");
+		set_gain(fd, d, o3, gain);
+	}
 
 	int inamp = src == AFE_AMPOUT_IN_SINGIN ? AFE_AMP_SINGIN0 :
 		    src == AFE_AMPOUT_IN_DIFFIN0 ? AFE_AMP_DIFFIN0 :
@@ -1568,7 +1580,7 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 	out("9) libération\n");
 	spk_amp(fd, d, 0);
 	afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, o2, "AFE_ENDPOINT_DISABLE");
-	afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, o3, "AFE_ENDPOINT_DISABLE");
+	if (woofer_mode) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, o3, "AFE_ENDPOINT_DISABLE");
 	if (inamp >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, inamp, "AFE_ENDPOINT_DISABLE");
 	uint8_t b[16]; unsigned n;
 	n = ie_media_channel(b, 0, woofer, 0);
@@ -1865,7 +1877,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:F:Q:G:Z:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:F:Q:G:Z:B:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -1891,6 +1903,7 @@ int main(int argc, char **argv)
 		case 'X': tweeter_pct = atoi(optarg); break;
 		case 'M': audio_nomic = 1; break;
 		case 'Z': spk_idle_s = atoi(optarg); break;
+		case 'B': woofer_mode = atoi(optarg); break;
 		case 'I': settle_s = atoi(optarg); break;
 		case 'F': front_src = atoi(optarg); break;
 		case 'Q': front_slots = strtoul(optarg, NULL, 0); break;
@@ -1942,7 +1955,8 @@ usage:
 			"        dvf99 [-q] [-e NVRAM] [-g GAIN] [-P SLOTS] [-W SLOTS] [-C SLOTS] [-N] service\n"
 			"          (service : touche verte du combiné = décroché automatique, -N pour non)\n"
 			"        dvf99 [-e NVRAM] param N [=HEX] [N [=HEX]…]\n"
-			"          -A : moteur audio (tubes /run/dvf99/{speaker,handset,mic}), -X : tweeter en %%\n"
+			"          -A : moteur audio (tubes /run/dvf99/{woofer,tweeter,handset,mic}), -X : tweeter en %%\n"
+			"          -B 0|1|2 : woofer sur AMP_OUT2 seule (défaut), OUT2+OUT3 en phase, pont d'Android\n"
 			"          -Z N : veille du haut-parleur après N s de silence (défaut 5, 0 : jamais)\n"
 			"        dvf99 -e NVRAM mictest   (cherche l'entrée du micro de façade)\n"
 			"        dvf99 -e NVRAM [-g GAIN] outtest  (quelle sortie pour quel haut-parleur)\n"
