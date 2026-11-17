@@ -6,7 +6,7 @@
 #     que les volumes Woofer / Tweeters du mixeur règlent la balance grave/aigu ;
 #   « Combiné » et « Micro du combiné » : le combiné DECT pendant un appel ;
 #   « Micro de façade » (entrée par défaut) : micro numérique de la tablette,
-#     8 kHz, muet pendant un appel du combiné.
+#     16 kHz, muet pendant un appel du combiné.
 # Les deux tweeters sont câblés ensemble sur la classe D de la DVF9919 : mono.
 #
 # Tourne en permanence (unité utilisateur dvf99-pulse.service) : PulseAudio a
@@ -31,6 +31,9 @@ pipe_source() {	# tube, nom, fréquence, description
 }
 complete() {
 	m=$(pactl list short modules 2>/dev/null) || return 1
+	# ancienne version du micro de façade en 8 kHz : à recharger en 16 kHz
+	echo "$m" | grep "file=$d/front" | grep -q "rate=8000" && \
+		pactl unload-module "$(echo "$m" | grep "file=$d/front" | cut -f1)"
 	for k in "file=$d/woofer" "file=$d/tweeter" "file=$d/handset" "sink_name=dvf99_speaker" \
 		 "file=$d/mic" "file=$d/front"; do
 		echo "$m" | grep -q "$k" || return 1
@@ -44,7 +47,7 @@ load_all() {
 		slaves=dvf99_woofer,dvf99_tweeter channels=2 rate=16000 \
 		sink_properties=device.description=Haut-parleurs >/dev/null
 	pipe_source mic dvf99_mic 16000 Micro_du_combiné
-	pipe_source front dvf99_front 8000 Micro_de_façade
+	pipe_source front dvf99_front 16000 Micro_de_façade
 	pactl set-default-sink dvf99_speaker
 	pactl set-default-source dvf99_front
 }

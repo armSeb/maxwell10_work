@@ -57,7 +57,7 @@ tubes nommés dans `/run/dvf99` :
 
 | Mots TDM (masque CMBS) | Canal CMBS | Voies ALSA | Tube → périphérique PulseAudio |
 |---|---|---|---|
-| 0-1 (`0x000F`) | appel du combiné, sinon micro de façade | 0, 1 | `handset` → sortie **Combiné** ; capture → `mic` → **Micro du combiné** pendant un appel, sinon mot 0 → `front` → **Micro de façade** (8 kHz) |
+| 0-1 (`0x000F`) | appel du combiné, sinon micro de façade | 0, 1 | `handset` → sortie **Combiné** ; capture → `mic` → **Micro du combiné** pendant un appel, sinon → `front` → **Micro de façade** (16 kHz) |
 | 2-3 (`0x00F0`) | tweeters (classe D) | 2, 3 | `tweeter` → sortie **Tweeters**, à `DVF99_TWEETER` % |
 | 4-5 (`0x0F00`) | woofer (AMP_OUT2) | 4, 5 | `woofer` → sortie **Woofer** |
 
@@ -267,8 +267,10 @@ qu'au PCM linéaire large bande demandé. `mictest` copie aussi les mots 0-3 pen
 Les copies ont tranché : **PCM linéaire signé, 8 kHz, seul l'octet de poids fort** (valeurs réparties autour de
 `0x00`/`0xFF`, spectre de voix), quel que soit le codec demandé, et pareil avec la source 34 ou 35. Le service
 ouvre désormais le micro lui-même (tube `front` → entrée PulseAudio **Micro de façade**, celle par défaut) :
-`AMP_DIFFIN0` + `MIC1` au démarrage, puis la séquence d'enregistrement ci-dessus sur le second canal, gain
-numérique ×2 (`-Y N`, 0 = coupé). Pendant un appel du combiné, il ferme le canal du micro, qui utilise les mêmes
+`AMP_DIFFIN0` + `MIC1` au démarrage, puis la séquence d'enregistrement ci-dessus sur le second canal.
+**Avec les canaux du haut-parleur ouverts, comme dans le service, le micro arrive comme le combiné : PCM
+linéaire 16 bits, 16 kHz sur les mots 0-1** (seul `mictest`, sans eux, n'avait que l'octet de poids fort du mot 0) ;
+`-Y N` est un gain numérique (défaut 1, 0 = coupé). Pendant un appel du combiné, il ferme le canal du micro, qui utilise les mêmes
 slots, et le rouvre ensuite.
 
 ### Format TDM

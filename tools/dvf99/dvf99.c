@@ -45,7 +45,7 @@
  *                                         en permanence (carte ALSA « DVF99 », mono 16 kHz) ;
  *                                         -q : journal réduit aux événements utiles ;
  *                                         -Y N : micro de façade, gain numérique ×N
- *                                         (défaut 2 ; 0 : coupé), tube /run/dvf99/front
+ *                                         (défaut 1 ; 0 : coupé), tube /run/dvf99/front (16 kHz)
  *
  * Sous Android, CMBSServer pulse le reset de la DVF99, envoie « run bootm » à son
  * U-Boot, puis parle CMBS. Sous mainline, personne ne le fait : la DVF99 reste
@@ -1083,10 +1083,12 @@ static int settle_s = 30;
 /* Micro de façade : micro numérique de la DVF9919, séquence relevée dans le
  * journal CMBS d'Android (CMBSServer) : AMP_DIFFIN0 (31) et MIC1 (37) actifs
  * en permanence ; à l'enregistrement, un canal (le 2e : instance 1), CONNECT
- * 15 ← 34 (ADC1 ← DIGMIC1), ENABLE 39, DEM_CHANNEL_START slots 0x000F. Il
- * arrive sur le mot TDM 0, 8 kHz, seul l'octet de poids fort est utile. Coupé
- * pendant un appel (le combiné utilise les mêmes slots). */
-static int front_gain = 2;		/* -Y N : gain numérique ×N ; 0 = micro de façade coupé */
+ * 15 ← 34 (ADC1 ← DIGMIC1), ENABLE 39, DEM_CHANNEL_START slots 0x000F. Avec
+ * les canaux du haut-parleur ouverts (service), il arrive comme le combiné :
+ * PCM linéaire 16 bits, 16 kHz sur les mots TDM 0-1 (seul, dans mictest, on
+ * ne recevait que l'octet de poids fort du mot 0). Coupé pendant un appel (le
+ * combiné utilise les mêmes slots). */
+static int front_gain = 1;		/* -Y N : gain numérique ×N ; 0 = micro de façade coupé */
 static volatile int front_live;		/* canal du micro de façade démarré */
 static volatile int call_on;		/* appel du combiné en cours */	/* -I : attente du combiné avant d'ouvrir les canaux (service) */
 static volatile sig_atomic_t stop_req;
@@ -1370,7 +1372,7 @@ static void *aud_capture(void *arg)
 {
 	(void)arg;
 	int mic = -1, front = -1;
-	int16_t fr[AUD_FR];
+	int16_t fr[2 * AUD_FR];
 	double check = 0, stat = now() + 15.0;
 	int peak[AUD_CH_CAP] = { 0 };
 	unsigned long periods = 0;
@@ -1415,8 +1417,10 @@ static void *aud_capture(void *arg)
 		for (int i = 0; i < AUD_FR; i++) {
 			m[2 * i] = call ? buf[nch * i] : 0;
 			m[2 * i + 1] = !call ? 0 : call_nb ? buf[nch * i] : buf[nch * i + 1];
-			int v = front_live && !call ? buf[nch * i] * front_gain : 0;
-			fr[i] = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
+			for (int k = 0; k < 2; k++) {
+				int v = front_live && !call ? buf[nch * i + k] * front_gain : 0;
+				fr[2 * i + k] = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
+			}
 		}
 		if (mic >= 0 && write(mic, m, sizeof m) < 0) { /* personne n'écoute : on jette */ }
 		if (front >= 0 && write(front, fr, sizeof fr) < 0) { /* idem */ }
