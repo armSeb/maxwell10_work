@@ -1,21 +1,17 @@
 [Unit]
-Description=Sorties et entrée audio de la DVF9919 dans PulseAudio
+Description=Sorties et entrées audio de la DVF9919 dans PulseAudio
 After=pulseaudio.service
 Wants=pulseaudio.service
-# PulseAudio relancé = modules perdus : on repasse derrière lui
-PartOf=pulseaudio.service
 StartLimitIntervalSec=0
 # pas pour les comptes système (greeter greetd/phrog) : leur PulseAudio prendrait les tubes
 ConditionUser=!@system
 
 [Service]
-Type=oneshot
-RemainAfterExit=yes
+# surveille et recharge les modules s'ils disparaissent (voir le script)
+Type=simple
 ExecStart=/usr/libexec/dvf99-pulse
-# tubes de dvf99 pas encore là, PulseAudio pas prêt… : on réessaie
-Restart=on-failure
-RestartSec=10
-TimeoutStartSec=5min
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=default.target

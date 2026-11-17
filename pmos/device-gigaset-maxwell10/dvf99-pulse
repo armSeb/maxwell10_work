@@ -1,6 +1,6 @@
 #!/bin/sh
-# Ajoute à la session PulseAudio de l'utilisateur les sorties et l'entrée servies
-# par dvf99.service (tubes mono 16 kHz dans /run/dvf99) :
+# Ajoute à la session PulseAudio de l'utilisateur les sorties et les entrées
+# servies par dvf99.service (tubes mono dans /run/dvf99), et les y maintient :
 #   « Woofer » et « Tweeters » : chaque voie du haut-parleur, réglable à part ;
 #   « Haut-parleurs » (défaut) : les deux réunies (module-combine-sink), si bien
 #     que les volumes Woofer / Tweeters du mixeur règlent la balance grave/aigu ;
@@ -8,40 +8,55 @@
 #   « Micro de façade » (entrée par défaut) : micro numérique de la tablette,
 #     8 kHz, muet pendant un appel du combiné.
 # Les deux tweeters sont câblés ensemble sur la classe D de la DVF9919 : mono.
-# Lancé par l'unité utilisateur dvf99-pulse.service, qui ne tourne pas pour les
-# comptes système (greeter).
-d=/run/dvf99
+#
+# Tourne en permanence (unité utilisateur dvf99-pulse.service) : PulseAudio a
+# déjà déchargé ces modules en cours de session sans redémarrer ; on vérifie
+# toutes les 5 s et on recharge ce qui manque, avec une trace dans le journal.
 # dvf99.service ne crée ses tubes qu'après l'init de la base et l'attente du
-# combiné (jusqu'à 40 s ou plus après le démarrage) : on attend large, et on
-# échoue (systemd relance) plutôt que de charger des modules sans tubes.
-for i in $(seq 60); do pactl info >/dev/null 2>&1 && break; sleep 1; done
-pactl info >/dev/null 2>&1 || { echo "dvf99-pulse : PulseAudio injoignable" >&2; exit 1; }
-for i in $(seq 180); do [ -p "$d/woofer" ] && [ -p "$d/tweeter" ] && break; sleep 1; done
-[ -p "$d/woofer" ] && [ -p "$d/tweeter" ] || { echo "dvf99-pulse : tubes de dvf99 absents" >&2; exit 1; }
-fail=0
-loaded() { pactl list short modules | grep -q "$1"; }
+# combiné (40 s ou plus après le démarrage) : on attend qu'ils soient là.
+d=/run/dvf99
+
+loaded() { pactl list short modules 2>/dev/null | grep -q "$1"; }
 pipe_sink() {	# tube, nom, description
 	loaded "file=$d/$1" || pactl load-module module-pipe-sink file="$d/$1" sink_name="$2" \
 		format=s16le rate=16000 channels=1 use_system_clock_for_timing=yes \
-		sink_properties=device.description="$3" || fail=1
+		sink_properties=device.description="$3" >/dev/null
 }
-pipe_sink woofer dvf99_woofer Woofer
-pipe_sink tweeter dvf99_tweeter Tweeters
-pipe_sink handset dvf99_handset Combiné
-loaded "sink_name=dvf99_speaker" || pactl load-module module-combine-sink sink_name=dvf99_speaker \
-	slaves=dvf99_woofer,dvf99_tweeter channels=2 rate=16000 \
-	sink_properties=device.description=Haut-parleurs || fail=1
 # module-pipe-source refuse un tube existant : on retire le nôtre s'il en reste un
 pipe_source() {	# tube, nom, fréquence, description
-	if ! loaded "file=$d/$1"; then
-		[ -p "$d/$1" ] && [ -O "$d/$1" ] && rm -f "$d/$1"
-		pactl load-module module-pipe-source file="$d/$1" source_name="$2" \
-			format=s16le rate="$3" channels=1 source_properties=device.description="$4" || fail=1
-	fi
+	loaded "file=$d/$1" && return 0
+	[ -p "$d/$1" ] && [ -O "$d/$1" ] && rm -f "$d/$1"
+	pactl load-module module-pipe-source file="$d/$1" source_name="$2" \
+		format=s16le rate="$3" channels=1 source_properties=device.description="$4" >/dev/null
 }
-pipe_source mic dvf99_mic 16000 Micro_du_combiné
-# micro numérique de la façade : 8 kHz, coupé pendant un appel du combiné
-pipe_source front dvf99_front 8000 Micro_de_façade
-pactl set-default-sink dvf99_speaker
-pactl set-default-source dvf99_front
-exit $fail
+complete() {
+	m=$(pactl list short modules 2>/dev/null) || return 1
+	for k in "file=$d/woofer" "file=$d/tweeter" "file=$d/handset" "sink_name=dvf99_speaker" \
+		 "file=$d/mic" "file=$d/front"; do
+		echo "$m" | grep -q "$k" || return 1
+	done
+}
+load_all() {
+	pipe_sink woofer dvf99_woofer Woofer
+	pipe_sink tweeter dvf99_tweeter Tweeters
+	pipe_sink handset dvf99_handset Combiné
+	loaded "sink_name=dvf99_speaker" || pactl load-module module-combine-sink sink_name=dvf99_speaker \
+		slaves=dvf99_woofer,dvf99_tweeter channels=2 rate=16000 \
+		sink_properties=device.description=Haut-parleurs >/dev/null
+	pipe_source mic dvf99_mic 16000 Micro_du_combiné
+	pipe_source front dvf99_front 8000 Micro_de_façade
+	pactl set-default-sink dvf99_speaker
+	pactl set-default-source dvf99_front
+}
+
+first=1
+while :; do
+	if pactl info >/dev/null 2>&1 && [ -p "$d/woofer" ] && [ -p "$d/tweeter" ] && ! complete; then
+		if [ $first = 1 ]; then echo "dvf99-pulse : chargement des modules"
+		else echo "dvf99-pulse : modules manquants, rechargement"; fi
+		load_all
+		complete && echo "dvf99-pulse : sorties et entrées en place" || echo "dvf99-pulse : chargement incomplet, nouvel essai dans 5 s"
+		first=0
+	fi
+	sleep 5
+done
