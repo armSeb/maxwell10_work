@@ -229,6 +229,20 @@ The call channel is only accepted at **slot 0 with contiguous bytes** (`0x000F`;
 refused). Handset state also arrives as event **274** (Gigaset extension): IE 28 handset number, IE 32
 data whose 8th byte is the hook state (0 off-hook, 1 on-hook); the volume keys produce it too.
 
+### Android's CMBS trace
+
+`CMBSServer` (the Android daemon that owns `/dev/ttymxc2`) writes every CMBS exchange, decoded, to
+`/data/cmbs/cmbs_log.txt` (current boot) and `cmbs_temp.txt` (previous one); a `mUartDump` option also
+exists for raw dumps. What it shows:
+
+- at start-up, once and for good: `PARAM_SET DHSG ENABLE = 1`, then `AFE_ENDPOINT_ENABLE AMP_DIFFIN0` (31)
+  and `AFE_ENDPOINT_ENABLE MIC1` (37, microphone bias), then an `AFE_AUX_MEASUREMENT` on DCIN02 (RJ9 port);
+- for playback: DAC channel `f0` with OUT2 ← DAC0, OUT3 ← DAC0_INV, both at −12 dB, `0x0F00`, then GPIO
+  bank 3 pin 10 enabled and configured as output set; class D channel `f2` on `0x00F0`; codec
+  `PCM_LINEAR_WB`; on stop, GPIO disabled first.
+
+`mictest` now reproduces the start-up part (AMP_DIFFIN0 + MIC1) before its routings and tries DIFFIN0/1.
+
 ### TDM format
 
 Measured with [tools/debug/ssireg](../../tools/debug/ssireg/ssireg.c): 8000 frames/s, frame sync is a

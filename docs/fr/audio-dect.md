@@ -238,6 +238,20 @@ refusés). L'état du combiné arrive aussi par l'événement **274** (extension
 combiné, IE 32 données dont le 8ᵉ octet est l'état du crochet (0 décroché, 1 raccroché) ; les touches de
 volume le produisent aussi.
 
+### La trace CMBS d'Android
+
+`CMBSServer` (le démon Android qui tient `/dev/ttymxc2`) écrit tous les échanges CMBS, décodés, dans
+`/data/cmbs/cmbs_log.txt` (démarrage en cours) et `cmbs_temp.txt` (le précédent) ; une option `mUartDump`
+existe aussi pour des copies brutes. Ce qu'elle montre :
+
+- au démarrage, une fois pour toutes : `PARAM_SET DHSG ENABLE = 1`, puis `AFE_ENDPOINT_ENABLE AMP_DIFFIN0` (31)
+  et `AFE_ENDPOINT_ENABLE MIC1` (37, polarisation du micro), puis une `AFE_AUX_MEASUREMENT` sur DCIN02 (port RJ9) ;
+- à la lecture : canal DAC `f0` avec OUT2 ← DAC0, OUT3 ← DAC0_INV, tous deux à −12 dB, `0x0F00`, puis GPIO
+  banque 3 broche 10 activée et configurée en sortie à 1 ; canal classe D `f2` sur `0x00F0` ; codec
+  `PCM_LINEAR_WB` ; à l'arrêt, la GPIO est coupée en premier.
+
+`mictest` reproduit désormais la partie démarrage (AMP_DIFFIN0 + MIC1) avant ses routages et essaie DIFFIN0/1.
+
 ### Format TDM
 
 Mesuré avec [tools/debug/ssireg](../../tools/debug/ssireg/ssireg.c) : 8000 trames/s, synchro de trame en
