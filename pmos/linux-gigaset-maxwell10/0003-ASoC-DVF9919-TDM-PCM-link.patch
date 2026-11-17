@@ -104,7 +104,7 @@ index 000000000..267874cb4
 +	.capture = {
 +		.stream_name	= "Capture",
 +		.channels_min	= 6,
-+		.channels_max	= 6,
++		.channels_max	= 12,
 +		.rates		= SNDRV_PCM_RATE_8000,
 +		.formats	= SNDRV_PCM_FMTBIT_S16_LE,
 +	},

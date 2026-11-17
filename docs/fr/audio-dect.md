@@ -262,6 +262,18 @@ La vitre a une ouverture de micro, mais son routage est inconnu. La bibliothèqu
 +30 dB) : les canaux sont acceptés et des échantillons arrivent, mais aucun ne réagit à la voix. Étape
 suivante : observer Android pendant un appel mains libres (capture CMBS sur l'UART3, ou journal vendeur).
 
+### Ce que montre Android
+
+La carte ALSA `dvf9919-audio` d'Android (`/proc/asound/dvf9919audio/pcm0*/sub0/hw_params`) :
+
+| Flux | Format | Signification |
+|---|---|---|
+| lecture | 3 voies, 16 kHz, période 160 | les 3 mêmes paires de mots TDM que nous (appel, tweeters, woofer) : pas de stéréo |
+| capture, enregistrement par le micro de façade | **6 voies**, 16 kHz, période 80 | **12 mots TDM** : la réception va au-delà des 6 mots que lisait notre carte |
+
+Depuis, le device tree reçoit 12 mots (`dai-tdm-slot-rx-mask`), la capture de la carte `DVF99` accepte
+12 voies, et `mictest` affiche la crête de chaque mot en signalant ceux qui réagissent à la voix.
+
 ## Référence de `dvf99`
 
 Construction : `tools/dvf99/build.sh` (binaire ARM statique) ou le paquet de l'appareil. À lancer en

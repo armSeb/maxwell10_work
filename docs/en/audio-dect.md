@@ -253,6 +253,16 @@ The glass has a microphone opening, but its routing is unknown. The vendor libra
 channels are accepted and samples arrive, but none reacts to voice. The next step is to observe Android
 during a hands-free call (CMBS capture on UART3, or the vendor log).
 
+What Android's ALSA card `dvf9919-audio` reports (`/proc/asound/dvf9919audio/pcm0*/sub0/hw_params`):
+
+| Stream | Format | Meaning |
+|---|---|---|
+| playback | 3 channels, 16 kHz, period 160 | the same 3 pairs of TDM words as ours (call, tweeters, woofer): no stereo |
+| capture, front microphone recording | **6 channels**, 16 kHz, period 80 | **12 TDM words**: the receive side goes past the 6 words our card read |
+
+Since then the device tree receives 12 words (`dai-tdm-slot-rx-mask`), the capture of the `DVF99` card
+accepts 12 channels, and `mictest` prints the peaks of every word, flagging those that react to voice.
+
 ## `dvf99` reference
 
 Build: `tools/dvf99/build.sh` (static ARM binary) or the device package. Run as root; stop

@@ -1101,6 +1101,7 @@ static volatile sig_atomic_t stop_req;
 #define AUD_FR		160		/* trames 8 kHz par période (20 ms) */
 #define AUD_PERIODS	4
 #define AUD_CH		6
+#define AUD_CH_CAP	12		/* capture : mots 0..11 (6 voies 16 kHz, comme Android) */
 static int woofer_mode = 0;		/* -B : câblage du woofer, voir mode_speaker */
 static int tweeter_pct = 50;		/* -X : niveau du tweeter en % (écrêtage des aigus à 100) */
 static int audio_on;			/* -A */
@@ -1119,7 +1120,7 @@ static volatile unsigned spk_loud_ms;	/* horodatage (ms) du dernier son non nul 
 static volatile unsigned aud_sine;
 static const int16_t sine16[16] = { 0, 3061, 5657, 7391, 8000, 7391, 5657, 3061,
 				    0, -3061, -5657, -7391, -8000, -7391, -5657, -3061 };
-static volatile int cap_peak[6];	/* crêtes de capture, remises à zéro par mictest */		/* -D N : diagnostic, haut-parleur sur la paire de voies N seule */
+static volatile int cap_peak[AUD_CH_CAP];	/* crêtes de capture, remises à zéro par mictest */		/* -D N : diagnostic, haut-parleur sur la paire de voies N seule */
 
 static unsigned now_ms(void) { return (unsigned)(long long)(now() * 1000.0); }
 
@@ -1211,7 +1212,7 @@ static void hp_int(struct snd_pcm_hw_params *p, int n, unsigned v)
 }
 
 /* ouvre et configure /dev/snd/pcmC<c>D0{p,c} : S16_LE, 6 voies, 8 kHz */
-static int aud_open(int card, int capture)
+static int aud_open(int card, int capture, int ch)
 {
 	char dev[64];
 	snprintf(dev, sizeof dev, "/dev/snd/pcmC%dD0%c", card, capture ? 'c' : 'p');
@@ -1231,8 +1232,8 @@ static int aud_open(int card, int capture)
 	hp_mask(&hp, SNDRV_PCM_HW_PARAM_FORMAT, SNDRV_PCM_FORMAT_S16_LE);
 	hp_mask(&hp, SNDRV_PCM_HW_PARAM_SUBFORMAT, SNDRV_PCM_SUBFORMAT_STD);
 	hp_int(&hp, SNDRV_PCM_HW_PARAM_SAMPLE_BITS, 16);
-	hp_int(&hp, SNDRV_PCM_HW_PARAM_FRAME_BITS, 16 * AUD_CH);
-	hp_int(&hp, SNDRV_PCM_HW_PARAM_CHANNELS, AUD_CH);
+	hp_int(&hp, SNDRV_PCM_HW_PARAM_FRAME_BITS, 16 * ch);
+	hp_int(&hp, SNDRV_PCM_HW_PARAM_CHANNELS, ch);
 	hp_int(&hp, SNDRV_PCM_HW_PARAM_RATE, 8000);
 	hp_int(&hp, SNDRV_PCM_HW_PARAM_PERIOD_SIZE, AUD_FR);
 	hp_int(&hp, SNDRV_PCM_HW_PARAM_PERIODS, AUD_PERIODS);
@@ -1283,7 +1284,7 @@ static void *aud_play(void *arg)
 	while (!stop_req) {
 		if (fd < 0) {
 			int c = aud_card();
-			if (c < 0 || (fd = aud_open(c, 0)) < 0) { sleep(2); continue; }
+			if (c < 0 || (fd = aud_open(c, 0, AUD_CH)) < 0) { sleep(2); continue; }
 			out("audio : lecture ouverte (carte %d, 8 kHz, %d voies)\n", c, AUD_CH);
 		}
 		if (spk_ready || spk_idle_s <= 0) {
@@ -1353,34 +1354,39 @@ static void *aud_capture(void *arg)
 	(void)arg;
 	int mic = -1;
 	double check = 0, stat = now() + 15.0;
-	int peak[AUD_CH] = { 0 };
+	int peak[AUD_CH_CAP] = { 0 };
 	unsigned long periods = 0;
-	int16_t m[2 * AUD_FR], buf[AUD_CH * AUD_FR];
-	int fd = -1;
+	int16_t m[2 * AUD_FR], buf[AUD_CH_CAP * AUD_FR];
+	int fd = -1, nch = AUD_CH_CAP;
 	unsigned long xruns = 0;
 	while (!stop_req) {
 		if (fd < 0) {
 			int c = aud_card();
-			if (c < 0 || (fd = aud_open(c, 1)) < 0) { sleep(2); continue; }
-			out("audio : capture ouverte\n");
+			if (c < 0) { sleep(2); continue; }
+			/* 12 mots si le noyau les reçoit, sinon les 6 d'avant */
+			nch = AUD_CH_CAP;
+			if ((fd = aud_open(c, 1, nch)) < 0) fd = aud_open(c, 1, nch = AUD_CH);
+			if (fd < 0) { sleep(2); continue; }
+			out("audio : capture ouverte (%d voies)\n", nch);
 		}
 		if (aud_xfer(fd, 1, buf, &xruns) < 0) { close(fd); fd = -1; sleep(1); continue; }
 		if (now() > check) { mic = aud_mic_fd(mic); check = now() + 2.0; }
-		/* diagnostic : crête de chaque voie reçue (mots 0..5 de la trame) */
+		/* diagnostic : crête de chaque voie reçue (mots 0..nch-1 de la trame) */
 		periods++;
-		for (int i = 0; i < AUD_FR * AUD_CH; i++) {
+		for (int i = 0; i < AUD_FR * nch; i++) {
 			int v = buf[i] < 0 ? -buf[i] : buf[i];
-			if (v > peak[i % AUD_CH]) peak[i % AUD_CH] = v;
-			if (v > cap_peak[i % AUD_CH]) cap_peak[i % AUD_CH] = v;
+			if (v > peak[i % nch]) peak[i % nch] = v;
+			if (v > cap_peak[i % nch]) cap_peak[i % nch] = v;
 		}
 		if (now() > stat) {
-			out("audio : capture : %lu périodes, crêtes voies 0..5 : %d %d %d %d %d %d\n", periods,
-			    peak[0], peak[1], peak[2], peak[3], peak[4], peak[5]);
+			char l[160]; int k = 0;
+			for (int j = 0; j < nch; j++) k += snprintf(l + k, sizeof l - k, " %d", peak[j]);
+			out("audio : capture : %lu périodes, crêtes voies 0..%d :%s\n", periods, nch - 1, l);
 			memset(peak, 0, sizeof peak); periods = 0; stat = now() + 15.0;
 		}
 		for (int i = 0; i < AUD_FR; i++) {
-			m[2 * i] = buf[AUD_CH * i];
-			m[2 * i + 1] = call_nb ? buf[AUD_CH * i] : buf[AUD_CH * i + 1];
+			m[2 * i] = buf[nch * i];
+			m[2 * i + 1] = call_nb ? buf[nch * i] : buf[nch * i + 1];
 		}
 		if (mic >= 0 && write(mic, m, sizeof m) < 0) { /* personne n'écoute : on jette */ }
 	}
@@ -1824,16 +1830,17 @@ static int mode_mictest(int fd, struct decoder *d)
 			afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, tries[i].en2, "AFE_ENDPOINT_ENABLE");
 		channel_start(fd, d, ch, 0x000F, 1);
 		read_for(fd, d, 1.0);
-		for (int k = 0; k < 6; k++) cap_peak[k] = 0;
+		for (int k = 0; k < AUD_CH_CAP; k++) cap_peak[k] = 0;
 		out("   SILENCE 6 s…\n");
 		read_for(fd, d, 6.0);
-		int sil[6];
-		for (int k = 0; k < 6; k++) { sil[k] = cap_peak[k]; cap_peak[k] = 0; }
+		int sil[AUD_CH_CAP];
+		for (int k = 0; k < AUD_CH_CAP; k++) { sil[k] = cap_peak[k]; cap_peak[k] = 0; }
 		out("   PARLE 6 s…\n");
 		read_for(fd, d, 6.0);
-		out("   crêtes silence / parole : voies 0,1 = %d %d / %d %d ; voies 2..5 = %d %d %d %d / %d %d %d %d\n",
-		    sil[0], sil[1], cap_peak[0], cap_peak[1],
-		    sil[2], sil[3], sil[4], sil[5], cap_peak[2], cap_peak[3], cap_peak[4], cap_peak[5]);
+		out("   crêtes par mot TDM, silence -> parole :\n");
+		for (int k = 0; k < AUD_CH_CAP; k++)
+			out("     mot %2d : %5d -> %5d%s\n", k, sil[k], cap_peak[k],
+			    cap_peak[k] > 4 * sil[k] + 200 ? "   <== réagit" : "");
 		uint8_t b[16]; unsigned n;
 		n = ie_media_channel(b, 0, ch, 0);
 		request(fd, d, EV_DEM_CHANNEL_STOP, b, n, "DEM_CHANNEL_STOP");
