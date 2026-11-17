@@ -115,6 +115,9 @@ int main(void)
 	if (nul > 2) close(nul);
 	signal(SIGCHLD, SIG_IGN);
 	signal(SIGPIPE, SIG_IGN);
+	/* hors d'atteinte du low memory killer (hérité par les sessions) */
+	int oom = open("/proc/self/oom_score_adj", O_WRONLY);
+	if (oom >= 0) { if (write(oom, "-1000", 5)) {} close(oom); }
 
 	static struct slot sl[SLOTS];
 	for (int i = 0; i < SLOTS; i++) mkslot(&sl[i]);
