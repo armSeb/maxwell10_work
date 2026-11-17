@@ -1798,24 +1798,20 @@ static int mode_outtest(int fd, struct decoder *d, int gain)
  * haut-parleur, les slots 0..3 sont libres. */
 static int mode_mictest(int fd, struct decoder *d)
 {
-	/* essai n°3 : reproduire Android. Logcat du magnétophone : le micro intégré
-	 * est l'appareil 2 de device_config_info, ADC0 ← DIGMIC1 (15) avec un seul
-	 * point activé, l'indice 10 = ADC2 (35), slot 0, sans GPIO ni polarisation
-	 * ni gain ; séquence ALLOCATE, CONNECT, ENABLE, DEM_CHANNEL_START, sur un
-	 * second canal (f1) pendant que le haut-parleur tient f0. Variantes autour. */
-	/* essai n°4 : le journal CMBS d'Android (/data/cmbs/cmbs_log.txt, écrit
-	 * en clair par CMBSServer) montre qu'au démarrage il active une fois pour
-	 * toutes AMP_DIFFIN0 (31) et MIC1 (37, polarisation), et les laisse actifs.
-	 * D'où DIFFIN0 polarisé par MIC1 (et non MIC0 comme essayé avant). */
+	/* essai n°5 : la séquence exacte d'Android, lue dans le journal CMBS de
+	 * CMBSServer pendant un enregistrement (valeurs brutes sur le fil) :
+	 *   AFE_CHANNEL_ALLOCATE (ressource 0) -> f1, instance 1
+	 *   AFE_ENDPOINT_CONNECT 15 <- 34   (« ADC1 <- ADC_IN_DIGMIC1 »)
+	 *   AFE_ENDPOINT_ENABLE 39
+	 *   DEM_CHANNEL_START f1, PCM_LINEAR_WB, slots 0x000F
+	 *   (à l'arrêt : AFE_ENDPOINT_DISABLE 38, STOP, DEALLOCATE)
+	 * Nos essais précédents utilisaient la numérotation déduite de la table du
+	 * HAL (33 <- 15…), fausse pour ces points. Variantes autour. */
 	static const struct { int dst, src, en1, en2; const char *what; } tries[] = {
-		{ 33,  9, 33, -1, "ADC0 <- DIFFIN0 (AMP_DIFFIN0 + MIC1 actifs), active ADC0" },
-		{ 33,  9, 35, -1, "ADC0 <- DIFFIN0 (AMP_DIFFIN0 + MIC1 actifs), active ADC2" },
-		{ 33, 10, 33, -1, "ADC0 <- DIFFIN1 (AMP_DIFFIN0 + MIC1 actifs), active ADC0" },
-		{ 33, 15, 35, -1, "ADC0 <- DIGMIC1, active ADC2 (Android)" },
-		{ 33, 15, 33, 35, "ADC0 <- DIGMIC1, active ADC0 + ADC2" },
-		{ 35, 15, 35, -1, "ADC2 <- DIGMIC1, active ADC2" },
-		{ 33, 16, 35, -1, "ADC0 <- DIGMIC2, active ADC2" },
-		{ 33, 15, 33, -1, "ADC0 <- DIGMIC1, active ADC0" },
+		{ 15, 34, 39, -1, "15 <- 34 (ADC1 <- DIGMIC1), active 39 : Android" },
+		{ 15, 34, 39, 38, "15 <- 34, active 39 + 38" },
+		{ 15, 34, 38, -1, "15 <- 34, active 38" },
+		{ 15, 35, 39, -1, "15 <- 35 (DIGMIC2 ?), active 39" },
 	};
 	if (do_init(fd, d)) return 1;
 	{
@@ -1830,7 +1826,7 @@ static int mode_mictest(int fd, struct decoder *d)
 	}
 	audio_on = 1; audio_start();
 	read_for(fd, d, 3.0);
-	/* comme CMBSServer au démarrage : préampli DIFFIN0 et polarisation MIC1 */
+	/* comme CMBSServer au démarrage (il les laisse actifs) : AMP_DIFFIN0 et MIC1 */
 	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, AFE_AMP_DIFFIN0, "AFE_ENDPOINT_ENABLE");
 	afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, AFE_MIC1, "AFE_ENDPOINT_ENABLE");
 	/* canal fictif pour que le micro reçoive f1, comme sous Android */

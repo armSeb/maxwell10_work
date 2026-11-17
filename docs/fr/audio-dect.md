@@ -250,7 +250,14 @@ existe aussi pour des copies brutes. Ce qu'elle montre :
   banque 3 broche 10 activée et configurée en sortie à 1 ; canal classe D `f2` sur `0x00F0` ; codec
   `PCM_LINEAR_WB` ; à l'arrêt, la GPIO est coupée en premier.
 
-`mictest` reproduit désormais la partie démarrage (AMP_DIFFIN0 + MIC1) avant ses routages et essaie DIFFIN0/1.
+- **enregistrement par le micro de façade** (magnétophone) : canal DAC `f0` et classe D `f2` démarrés d'abord
+  comme pour la lecture, puis `AFE_CHANNEL_ALLOCATE` (ressource 0) → `f1`, instance 1 ;
+  `AFE_ENDPOINT_CONNECT 15 ← 34` (la trace les nomme ADC1 ← ADC_IN_DIGMIC1) ; `AFE_ENDPOINT_ENABLE 39` ;
+  `DEM_CHANNEL_START f1`, `PCM_LINEAR_WB`, slots `0x000F` ; à l'arrêt `AFE_ENDPOINT_DISABLE 38`,
+  `DEM_CHANNEL_STOP`, `DEALLOCATE`. Ce sont les valeurs brutes sur le fil : nos essais précédents
+  (33 ← 15, activation 35) venaient d'une mauvaise lecture de la table du HAL.
+
+`mictest` rejoue désormais la partie démarrage (AMP_DIFFIN0 + MIC1), puis cette séquence d'enregistrement et quelques variantes.
 
 ### Format TDM
 

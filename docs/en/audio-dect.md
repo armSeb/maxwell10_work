@@ -241,7 +241,14 @@ exists for raw dumps. What it shows:
   bank 3 pin 10 enabled and configured as output set; class D channel `f2` on `0x00F0`; codec
   `PCM_LINEAR_WB`; on stop, GPIO disabled first.
 
-`mictest` now reproduces the start-up part (AMP_DIFFIN0 + MIC1) before its routings and tries DIFFIN0/1.
+- **front microphone recording** (recorder app): DAC channel `f0` and class D `f2` started first as for
+  playback, then `AFE_CHANNEL_ALLOCATE` (resource 0) → `f1`, instance 1; `AFE_ENDPOINT_CONNECT 15 ← 34`
+  (the trace names them ADC1 ← ADC_IN_DIGMIC1); `AFE_ENDPOINT_ENABLE 39`; `DEM_CHANNEL_START f1`,
+  `PCM_LINEAR_WB`, slots `0x000F`; on stop `AFE_ENDPOINT_DISABLE 38`, `DEM_CHANNEL_STOP`, `DEALLOCATE`.
+  These are raw on-wire values: our earlier attempts (33 ← 15, enable 35) came from a wrong reading of the
+  HAL's table.
+
+`mictest` now replays the start-up part (AMP_DIFFIN0 + MIC1), then this recording sequence and a few variants.
 
 ### TDM format
 
