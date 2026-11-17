@@ -1113,6 +1113,11 @@ static int spk_idle_s = 5;		/* -Z N : secondes de silence avant veille (0 : jama
 static volatile int spk_ready = 1;	/* ampli et tweeter en marche (fil principal) */
 static volatile unsigned spk_loud_ms;	/* horodatage (ms) du dernier son non nul (fil audio) */
 #define SPK_FLOOR	16		/* |échantillon| en dessous = silence */
+/* outtest : sinus 1 kHz injecté par le moteur audio sur les paires de voies
+ * dont le bit est mis (bit 1 = mots 2-3, slots 0x00F0 ; bit 2 = mots 4-5, 0x0F00) */
+static volatile unsigned aud_sine;
+static const int16_t sine16[16] = { 0, 3061, 5657, 7391, 8000, 7391, 5657, 3061,
+				    0, -3061, -5657, -7391, -8000, -7391, -5657, -3061 };
 static volatile int cap_peak[6];	/* crêtes de capture, remises à zéro par mictest */		/* -D N : diagnostic, haut-parleur sur la paire de voies N seule */
 
 static unsigned now_ms(void) { return (unsigned)(long long)(now() * 1000.0); }
@@ -1301,6 +1306,14 @@ static void *aud_play(void *arg)
 			if (audio_probe >= 0) {
 				memset(f, 0, AUD_CH * 2);
 				f[2 * audio_probe] = s[2 * i]; f[2 * audio_probe + 1] = s[2 * i + 1];
+			}
+			if (aud_sine) {
+				static unsigned ph;
+				for (int k = 1; k < 3; k++)
+					if (aud_sine & (1u << k)) {
+						f[2 * k] = sine16[ph & 15]; f[2 * k + 1] = sine16[(ph + 1) & 15];
+					}
+				ph += 2;
 			}
 		}
 		if (aud_xfer(fd, 0, buf, &xruns) < 0) { close(fd); fd = -1; sleep(1); continue; }
@@ -1661,8 +1674,10 @@ static int mode_param(int fd, struct decoder *d, int argc, char **argv)
  * petit HP droit) est câblé sur quoi. Sorties candidates : la classe D, AMP_OUT2/3
  * (le woofer d'Android, ampli GPIO D10) et AMP_OUT0/1 (utilisées par les
  * « appareils » mains libres 3 à 5 d'Android, avec GPIO D11). Termine par
- * deux allocations classe D simultanées : une stéréo intégrée serait acceptée. */
-static int mode_outtest(int fd, struct decoder *d, int gain, int tone)
+ * deux allocations classe D simultanées : une stéréo intégrée serait acceptée.
+ * Le son est un sinus envoyé par le TDM (moteur audio) : DEM_TONE_START n'a
+ * jamais rien produit sur ce matériel. */
+static int mode_outtest(int fd, struct decoder *d, int gain)
 {
 	static const struct { int res, o1, s1, o2, s2, gpio; const char *what; } tries[] = {
 		{ 1, -1,  0, -1,  0, -1, "classe D seule (« tweeter » d'Android)" },
@@ -1686,6 +1701,8 @@ static int mode_outtest(int fd, struct decoder *d, int gain, int tone)
 		}
 		quiet = q;
 	}
+	audio_on = 1; audio_start();
+	read_for(fd, d, 3.0);
 	out("\nNoter pour chaque essai : woofer / petit HP gauche / petit HP droit / rien.\n");
 	for (unsigned i = 0; i < sizeof tries / sizeof *tries; i++) {
 		uint8_t b[32]; unsigned n;
@@ -1702,13 +1719,10 @@ static int mode_outtest(int fd, struct decoder *d, int gain, int tone)
 		}
 		channel_start(fd, d, ch, tries[i].res ? 0x00F0 : 0x0F00, 1);
 		if (tries[i].gpio >= 0) dvf_gpio(fd, d, tries[i].gpio, 1);
-		n = ie_media_channel(b, 0, ch, 0);
-		n = ie_u8(b, n, IE_TONE, tone);
-		request(fd, d, EV_DEM_TONE_START, b, n, "DEM_TONE_START");
-		out("   >>> ÉCOUTE (4 s)\n");
+		aud_sine = tries[i].res ? 2 : 4;
+		out("   >>> ÉCOUTE (4 s, sinus 1 kHz par le TDM)\n");
 		read_for(fd, d, 4.0);
-		n = ie_media_channel(b, 0, ch, 0);
-		request(fd, d, EV_DEM_TONE_STOP, b, n, "DEM_TONE_STOP");
+		aud_sine = 0;
 		if (tries[i].gpio >= 0) {
 			dvf_gpio(fd, d, tries[i].gpio, 0);
 			n = ie_gpio_n(b, 0, tries[i].gpio);
@@ -1730,16 +1744,12 @@ static int mode_outtest(int fd, struct decoder *d, int gain, int tone)
 	if (!r1 && !r2) {
 		uint8_t b[32]; unsigned n;
 		channel_start(fd, d, c1, 0x00F0, 1);
-		channel_start(fd, d, c2, 0xF000, 1);
+		channel_start(fd, d, c2, 0x0F00, 1);
 		for (int k = 0; k < 2; k++) {
-			uint32_t c = k ? c2 : c1;
-			out("   >>> tonalité sur la classe D n°%d (4 s)\n", k + 1);
-			n = ie_media_channel(b, 0, c, 0);
-			n = ie_u8(b, n, IE_TONE, tone);
-			request(fd, d, EV_DEM_TONE_START, b, n, "DEM_TONE_START");
+			out("   >>> sinus sur la classe D n°%d (4 s)\n", k + 1);
+			aud_sine = k ? 4 : 2;
 			read_for(fd, d, 4.0);
-			n = ie_media_channel(b, 0, c, 0);
-			request(fd, d, EV_DEM_TONE_STOP, b, n, "DEM_TONE_STOP");
+			aud_sine = 0;
 			read_for(fd, d, 1.0);
 		}
 		for (int k = 0; k < 2; k++) {
@@ -1754,6 +1764,7 @@ static int mode_outtest(int fd, struct decoder *d, int gain, int tone)
 		unsigned n = ie_media_channel(b, 0, c, 0);
 		request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE");
 	}
+	stop_req = 1;
 	return 0;
 }
 
@@ -1915,7 +1926,7 @@ int main(int argc, char **argv)
 	if (!strcmp(mode, "init")) return mode_init(fd, &d);
 	if (!strcmp(mode, "register")) return mode_register(fd, &d);
 	if (!strcmp(mode, "mictest")) return mode_mictest(fd, &d);
-	if (!strcmp(mode, "outtest")) return mode_outtest(fd, &d, gain, tone);
+	if (!strcmp(mode, "outtest")) return mode_outtest(fd, &d, gain);
 	if (!strcmp(mode, "reset")) { reset_first = 1; return mode_init(fd, &d); }
 	if (!strcmp(mode, "tone")) return mode_tone(fd, &d, amp, tone, start_channel, src);
 	if (!strcmp(mode, "param")) return mode_param(fd, &d, argc - optind - 1, argv + optind + 1);
@@ -1934,7 +1945,7 @@ usage:
 			"          -A : moteur audio (tubes /run/dvf99/{speaker,handset,mic}), -X : tweeter en %%\n"
 			"          -Z N : veille du haut-parleur après N s de silence (défaut 5, 0 : jamais)\n"
 			"        dvf99 -e NVRAM mictest   (cherche l'entrée du micro de façade)\n"
-			"        dvf99 -e NVRAM [-g GAIN] [-t TONALITÉ] outtest  (quelle sortie pour quel haut-parleur)\n"
+			"        dvf99 -e NVRAM [-g GAIN] outtest  (quelle sortie pour quel haut-parleur)\n"
 			"        dvf99 -e NVRAM register  (inscription d'un combiné, 120 s)\n"
 			"        dvf99 [-e NVRAM] reset   (SYS_RESET de la pile puis init ; -R : idem avant tout mode)\n"
 			"        dvf99 -f CAPTURE sniff\n");

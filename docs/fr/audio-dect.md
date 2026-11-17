@@ -264,7 +264,7 @@ root ; arrêter d'abord `dvf99.service`, un seul programme peut utiliser l'UART.
 | `dvf99 [-e NVRAM] speaker [-t TONALITÉ\|-1] [-k]` | ouvre le chemin haut-parleur, avec une tonalité éventuelle |
 | `dvf99 [-e NVRAM] param N [=HEX] …` | lit / écrit des paramètres CMBS |
 | `dvf99 -A -e NVRAM mictest` | recherche du micro de façade |
-| `dvf99 -e NVRAM [-g GAIN] [-t TONALITÉ] outtest` | joue une tonalité sur chaque sortie possible tour à tour (classe D, AMP_OUT0..3 avec GPIO D10/D11), puis essaie deux canaux classe D à la fois : quel haut-parleur physique est câblé sur quoi |
+| `dvf99 -e NVRAM [-g GAIN] outtest` | joue un sinus 1 kHz par le TDM sur chaque sortie possible tour à tour (classe D, AMP_OUT0..3 avec GPIO D10/D11), puis essaie deux canaux classe D à la fois : quel haut-parleur physique est câblé sur quoi |
 
 | Option | Sens |
 |---|---|
