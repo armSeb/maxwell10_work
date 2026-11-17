@@ -258,6 +258,11 @@ existe aussi pour des copies brutes. Ce qu'elle montre :
   (33 ← 15, activation 35) venaient d'une mauvaise lecture de la table du HAL.
 
 `mictest` rejoue désormais la partie démarrage (AMP_DIFFIN0 + MIC1), puis cette séquence d'enregistrement et quelques variantes.
+**Résultat : le micro de façade répond** (`15 ← 34`, activation 39, aussi avec 39 + 38, et avec la source 35) :
+le mot TDM 0 passe de 256 au silence à 5000-8000 en parlant. Le mot 1 reste à 0 et toutes les valeurs sont des
+multiples de 256 (silence = `0xFF00`) : un seul octet utile par trame, ce qui ressemble à du µ-law 8 kHz plutôt
+qu'au PCM linéaire large bande demandé. `mictest` copie aussi les mots 0-3 pendant la parole dans
+`/tmp/mictest-N.raw` (S16, 4 voies, 8000 trames/s) et essaie le codec bande étroite.
 
 ### Format TDM
 

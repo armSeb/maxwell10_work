@@ -1120,6 +1120,7 @@ static volatile unsigned spk_loud_ms;	/* horodatage (ms) du dernier son non nul 
 static volatile unsigned aud_sine;
 static const int16_t sine16[16] = { 0, 3061, 5657, 7391, 8000, 7391, 5657, 3061,
 				    0, -3061, -5657, -7391, -8000, -7391, -5657, -3061 };
+static FILE *volatile cap_dump;	/* mictest : copie brute des mots 0..3 de chaque trame */
 static volatile int cap_peak[AUD_CH_CAP];	/* crêtes de capture, remises à zéro par mictest */		/* -D N : diagnostic, haut-parleur sur la paire de voies N seule */
 
 static unsigned now_ms(void) { return (unsigned)(long long)(now() * 1000.0); }
@@ -1377,6 +1378,10 @@ static void *aud_capture(void *arg)
 		}
 		if (aud_xfer(fd, 1, buf, &xruns) < 0) { close(fd); fd = -1; sleep(1); continue; }
 		if (now() > check) { mic = aud_mic_fd(mic); check = now() + 2.0; }
+		if (cap_dump) {
+			FILE *df = cap_dump;
+			for (int i = 0; i < AUD_FR; i++) fwrite(buf + nch * i, 2, 4, df);
+		}
 		/* diagnostic : crête de chaque voie reçue (mots 0..nch-1 de la trame) */
 		periods++;
 		for (int i = 0; i < AUD_FR * nch; i++) {
@@ -1807,11 +1812,16 @@ static int mode_mictest(int fd, struct decoder *d)
 	 *   (à l'arrêt : AFE_ENDPOINT_DISABLE 38, STOP, DEALLOCATE)
 	 * Nos essais précédents utilisaient la numérotation déduite de la table du
 	 * HAL (33 <- 15…), fausse pour ces points. Variantes autour. */
-	static const struct { int dst, src, en1, en2; const char *what; } tries[] = {
-		{ 15, 34, 39, -1, "15 <- 34 (ADC1 <- DIGMIC1), active 39 : Android" },
-		{ 15, 34, 39, 38, "15 <- 34, active 39 + 38" },
-		{ 15, 34, 38, -1, "15 <- 34, active 38" },
-		{ 15, 35, 39, -1, "15 <- 35 (DIGMIC2 ?), active 39" },
+	/* Résultat de l'essai n°5 : le micro répond sur le mot 0, mot 1 muet, et
+	 * toutes les valeurs sont des multiples de 256 (silence = 0xFF00) : un seul
+	 * octet utile par trame, ce qui ressemble à du µ-law 8 kHz. Essai n°6 : même
+	 * séquence en codec large bande (5) et bande étroite (6), avec copie brute
+	 * des mots 0..3 pendant la parole dans /tmp/mictest-N.raw (S16, 4 voies,
+	 * 8000 trames/s) pour analyse. */
+	static const struct { int dst, src, en1, en2, wb; const char *what; } tries[] = {
+		{ 15, 34, 39, -1, 1, "15 <- 34 (ADC1 <- DIGMIC1), active 39, PCM linéaire WB : Android" },
+		{ 15, 34, 39, -1, 0, "15 <- 34, active 39, PCM linéaire NB" },
+		{ 15, 35, 39, -1, 1, "15 <- 35 (DIGMIC2 ?), active 39, PCM linéaire WB" },
 	};
 	if (do_init(fd, d)) return 1;
 	{
@@ -1840,15 +1850,22 @@ static int mode_mictest(int fd, struct decoder *d)
 		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, tries[i].en1, "AFE_ENDPOINT_ENABLE");
 		if (tries[i].en2 >= 0)
 			afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, tries[i].en2, "AFE_ENDPOINT_ENABLE");
-		channel_start(fd, d, ch, 0x000F, 1);
+		channel_start(fd, d, ch, 0x000F, tries[i].wb);
 		read_for(fd, d, 1.0);
 		for (int k = 0; k < AUD_CH_CAP; k++) cap_peak[k] = 0;
 		out("   SILENCE 6 s…\n");
 		read_for(fd, d, 6.0);
 		int sil[AUD_CH_CAP];
 		for (int k = 0; k < AUD_CH_CAP; k++) { sil[k] = cap_peak[k]; cap_peak[k] = 0; }
-		out("   PARLE 6 s…\n");
+		char dn[64];
+		snprintf(dn, sizeof dn, "/tmp/mictest-%u.raw", i + 1);
+		FILE *df = fopen(dn, "wb");
+		out("   PARLE 6 s… (copie brute dans %s)\n", dn);
+		cap_dump = df;
 		read_for(fd, d, 6.0);
+		cap_dump = NULL;
+		usleep(100000);
+		if (df) fclose(df);
 		out("   crêtes par mot TDM, silence -> parole :\n");
 		for (int k = 0; k < AUD_CH_CAP; k++)
 			out("     mot %2d : %5d -> %5d%s\n", k, sil[k], cap_peak[k],

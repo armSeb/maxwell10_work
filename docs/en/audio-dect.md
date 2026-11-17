@@ -249,6 +249,11 @@ exists for raw dumps. What it shows:
   HAL's table.
 
 `mictest` now replays the start-up part (AMP_DIFFIN0 + MIC1), then this recording sequence and a few variants.
+**Result: the front microphone answers** (`15 ← 34`, enable 39, also with 39 + 38, and with source 35):
+TDM word 0 goes from 256 in silence to 5000-8000 when speaking. Word 1 stays at 0 and every value is a
+multiple of 256 (silence = `0xFF00`): one useful byte per frame, which looks like 8 kHz µ-law rather than
+the linear wideband PCM that was asked for. `mictest` now also dumps words 0-3 while speaking to
+`/tmp/mictest-N.raw` (S16, 4 channels, 8000 frames/s) and tries the narrowband codec.
 
 ### TDM format
 
