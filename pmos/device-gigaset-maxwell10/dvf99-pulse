@@ -4,7 +4,9 @@
 #   « Woofer » et « Tweeters » : chaque voie du haut-parleur, réglable à part ;
 #   « Haut-parleurs » (défaut) : les deux réunies (module-combine-sink), si bien
 #     que les volumes Woofer / Tweeters du mixeur règlent la balance grave/aigu ;
-#   « Combiné » et « Micro du combiné » : le combiné DECT pendant un appel.
+#   « Combiné » et « Micro du combiné » : le combiné DECT pendant un appel ;
+#   « Micro de façade » (entrée par défaut) : micro numérique de la tablette,
+#     8 kHz, muet pendant un appel du combiné.
 # Les deux tweeters sont câblés ensemble sur la classe D de la DVF9919 : mono.
 # Lancé par l'unité utilisateur dvf99-pulse.service, qui ne tourne pas pour les
 # comptes système (greeter).
@@ -24,11 +26,16 @@ loaded "sink_name=dvf99_speaker" || pactl load-module module-combine-sink sink_n
 	slaves=dvf99_woofer,dvf99_tweeter channels=2 rate=16000 \
 	sink_properties=device.description=Haut-parleurs
 # module-pipe-source refuse un tube existant : on retire le nôtre s'il en reste un
-if ! loaded "file=$d/mic"; then
-	[ -p "$d/mic" ] && [ -O "$d/mic" ] && rm -f "$d/mic"
-	pactl load-module module-pipe-source file="$d/mic" source_name=dvf99_mic \
-		format=s16le rate=16000 channels=1 source_properties=device.description=Micro_du_combiné
-fi
+pipe_source() {	# tube, nom, fréquence, description
+	if ! loaded "file=$d/$1"; then
+		[ -p "$d/$1" ] && [ -O "$d/$1" ] && rm -f "$d/$1"
+		pactl load-module module-pipe-source file="$d/$1" source_name="$2" \
+			format=s16le rate="$3" channels=1 source_properties=device.description="$4"
+	fi
+}
+pipe_source mic dvf99_mic 16000 Micro_du_combiné
+# micro numérique de la façade : 8 kHz, coupé pendant un appel du combiné
+pipe_source front dvf99_front 8000 Micro_de_façade
 pactl set-default-sink dvf99_speaker
-pactl set-default-source dvf99_mic
+pactl set-default-source dvf99_front
 exit 0

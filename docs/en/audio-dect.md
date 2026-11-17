@@ -56,7 +56,7 @@ streams. It exchanges 16 kHz mono S16 streams with PulseAudio through named pipe
 
 | TDM words (CMBS mask) | CMBS channel | ALSA channels | Pipe → PulseAudio device |
 |---|---|---|---|
-| 0-1 (`0x000F`) | handset call | 0, 1 | `handset` → output **Combiné**; capture → `mic` → input **Micro du combiné** |
+| 0-1 (`0x000F`) | handset call, otherwise front microphone | 0, 1 | `handset` → output **Combiné**; capture → `mic` → **Micro du combiné** during a call, otherwise word 0 → `front` → **Micro de façade** (8 kHz) |
 | 2-3 (`0x00F0`) | tweeters (class D) | 2, 3 | `tweeter` → output **Tweeters**, at `DVF99_TWEETER` % |
 | 4-5 (`0x0F00`) | woofer (AMP_OUT2) | 4, 5 | `woofer` → output **Woofer** |
 
@@ -254,6 +254,13 @@ TDM word 0 goes from 256 in silence to 5000-8000 when speaking. Word 1 stays at 
 multiple of 256 (silence = `0xFF00`): one useful byte per frame, which looks like 8 kHz µ-law rather than
 the linear wideband PCM that was asked for. `mictest` now also dumps words 0-3 while speaking to
 `/tmp/mictest-N.raw` (S16, 4 channels, 8000 frames/s) and tries the narrowband codec.
+
+The dumps settled it: **signed linear PCM, 8 kHz, only the most significant byte** (values spread around
+`0x00`/`0xFF`, speech spectrum), whatever codec is requested, and the same with source 34 or 35. The
+service now opens the microphone itself (`front` pipe → PulseAudio input **Micro de façade**, the default
+one): `AMP_DIFFIN0` + `MIC1` at start-up, then the recording sequence above on the second channel, ×2
+digital gain (`-Y N`, 0 = off). During a handset call it closes the microphone channel, which uses the same
+slots, and reopens it afterwards.
 
 ### TDM format
 

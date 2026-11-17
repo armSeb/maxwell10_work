@@ -28,7 +28,7 @@ DECT piloté depuis Linux.
 | Combiné DECT : écouteur, micro, décroché | ✅ | chemin audio seulement, pas encore de pile téléphonique |
 | Caméra (OmniVision OV9740) | ✅ | 1280×720 / 640×480, 30 i/s |
 | Codec vidéo matériel (VPU CODA960) | 🧪 | le firmware (copié d'Android) se charge, nœuds V4L2 du codec présents ; décodage pas encore testé |
-| Micro de façade | 🟡 | répond (micro numérique, ADC1 ← DIGMIC1), format des échantillons en cours de décodage ; pas encore d'entrée PulseAudio |
+| Micro de façade | ✅ | entrée PulseAudio « Micro de façade » (par défaut), 8 kHz, 8 bits utiles ; muet pendant un appel du combiné |
 | HDMI, capteur de lumière | ⏳ | pas fait |
 
 ✅ fonctionne · 🧪 écrit, pas entièrement vérifié · ❌ ne fonctionne pas · ⏳ pas commencé

@@ -57,7 +57,7 @@ tubes nommés dans `/run/dvf99` :
 
 | Mots TDM (masque CMBS) | Canal CMBS | Voies ALSA | Tube → périphérique PulseAudio |
 |---|---|---|---|
-| 0-1 (`0x000F`) | appel du combiné | 0, 1 | `handset` → sortie **Combiné** ; capture → `mic` → entrée **Micro du combiné** |
+| 0-1 (`0x000F`) | appel du combiné, sinon micro de façade | 0, 1 | `handset` → sortie **Combiné** ; capture → `mic` → **Micro du combiné** pendant un appel, sinon mot 0 → `front` → **Micro de façade** (8 kHz) |
 | 2-3 (`0x00F0`) | tweeters (classe D) | 2, 3 | `tweeter` → sortie **Tweeters**, à `DVF99_TWEETER` % |
 | 4-5 (`0x0F00`) | woofer (AMP_OUT2) | 4, 5 | `woofer` → sortie **Woofer** |
 
@@ -263,6 +263,13 @@ le mot TDM 0 passe de 256 au silence à 5000-8000 en parlant. Le mot 1 reste à 
 multiples de 256 (silence = `0xFF00`) : un seul octet utile par trame, ce qui ressemble à du µ-law 8 kHz plutôt
 qu'au PCM linéaire large bande demandé. `mictest` copie aussi les mots 0-3 pendant la parole dans
 `/tmp/mictest-N.raw` (S16, 4 voies, 8000 trames/s) et essaie le codec bande étroite.
+
+Les copies ont tranché : **PCM linéaire signé, 8 kHz, seul l'octet de poids fort** (valeurs réparties autour de
+`0x00`/`0xFF`, spectre de voix), quel que soit le codec demandé, et pareil avec la source 34 ou 35. Le service
+ouvre désormais le micro lui-même (tube `front` → entrée PulseAudio **Micro de façade**, celle par défaut) :
+`AMP_DIFFIN0` + `MIC1` au démarrage, puis la séquence d'enregistrement ci-dessus sur le second canal, gain
+numérique ×2 (`-Y N`, 0 = coupé). Pendant un appel du combiné, il ferme le canal du micro, qui utilise les mêmes
+slots, et le rouvre ensuite.
 
 ### Format TDM
 

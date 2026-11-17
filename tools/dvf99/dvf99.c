@@ -43,7 +43,9 @@
  *                                         (canal d'appel sur ces slots), sauf avec -N
  *                                         pour systemd : init + chemin haut-parleur ouvert
  *                                         en permanence (carte ALSA « DVF99 », mono 16 kHz) ;
- *                                         -q : journal réduit aux événements utiles
+ *                                         -q : journal réduit aux événements utiles ;
+ *                                         -Y N : micro de façade, gain numérique ×N
+ *                                         (défaut 2 ; 0 : coupé), tube /run/dvf99/front
  *
  * Sous Android, CMBSServer pulse le reset de la DVF99, envoie « run bootm » à son
  * U-Boot, puis parle CMBS. Sous mainline, personne ne le fait : la DVF99 reste
@@ -1078,9 +1080,15 @@ static void spk_power(int fd, struct decoder *d, int on, uint32_t tweeter, unsig
  * tweeter = second canal, slots 4..7, sans extrémité ; ampli sur GPIO D10.
  * -S autre que DAC0 : liaison analogique (ex. 22 = DIFFIN0 → micro dans le HP). */
 static int settle_s = 30;
-static int front_src = -1;		/* -F SRC : micro de façade, entrée de l'ADC0 (E_CMBS_AFE_CHANNEL) */
-static unsigned front_slots = 0x00F0;	/* -Q : slots de réception du micro de façade */
-static int front_gain = 16;		/* gain d'entrée (16 = +20 dB) */	/* -I : attente du combiné avant d'ouvrir les canaux (service) */
+/* Micro de façade : micro numérique de la DVF9919, séquence relevée dans le
+ * journal CMBS d'Android (CMBSServer) : AMP_DIFFIN0 (31) et MIC1 (37) actifs
+ * en permanence ; à l'enregistrement, un canal (le 2e : instance 1), CONNECT
+ * 15 ← 34 (ADC1 ← DIGMIC1), ENABLE 39, DEM_CHANNEL_START slots 0x000F. Il
+ * arrive sur le mot TDM 0, 8 kHz, seul l'octet de poids fort est utile. Coupé
+ * pendant un appel (le combiné utilise les mêmes slots). */
+static int front_gain = 2;		/* -Y N : gain numérique ×N ; 0 = micro de façade coupé */
+static volatile int front_live;		/* canal du micro de façade démarré */
+static volatile int call_on;		/* appel du combiné en cours */	/* -I : attente du combiné avant d'ouvrir les canaux (service) */
 static volatile sig_atomic_t stop_req;
 
 /* ---------- moteur audio (-A) ------------------------------------------------
@@ -1341,25 +1349,28 @@ static void *aud_play(void *arg)
 	return NULL;
 }
 
-/* (ré)ouvre le tube du micro créé par PulseAudio ; suit sa recréation */
-static int aud_mic_fd(int fd)
+/* (ré)ouvre un tube d'entrée créé par PulseAudio (mic, front) ; suit sa recréation */
+static int aud_src_fd(const char *name, int fd)
 {
+	char path[64];
 	struct stat a, b;
+	snprintf(path, sizeof path, AUD_DIR "/%s", name);
 	if (fd >= 0) {
-		if (stat(AUD_DIR "/mic", &a) == 0 && fstat(fd, &b) == 0 &&
+		if (stat(path, &a) == 0 && fstat(fd, &b) == 0 &&
 		    a.st_ino == b.st_ino && a.st_dev == b.st_dev)
 			return fd;
 		close(fd);
 	}
-	fd = open(AUD_DIR "/mic", O_RDWR | O_NONBLOCK);
-	if (fd >= 0) out("audio : tube du micro ouvert\n");
+	fd = open(path, O_RDWR | O_NONBLOCK);
+	if (fd >= 0) out("audio : tube %s ouvert\n", name);
 	return fd;
 }
 
 static void *aud_capture(void *arg)
 {
 	(void)arg;
-	int mic = -1;
+	int mic = -1, front = -1;
+	int16_t fr[AUD_FR];
 	double check = 0, stat = now() + 15.0;
 	int peak[AUD_CH_CAP] = { 0 };
 	unsigned long periods = 0;
@@ -1377,7 +1388,11 @@ static void *aud_capture(void *arg)
 			out("audio : capture ouverte (%d voies)\n", nch);
 		}
 		if (aud_xfer(fd, 1, buf, &xruns) < 0) { close(fd); fd = -1; sleep(1); continue; }
-		if (now() > check) { mic = aud_mic_fd(mic); check = now() + 2.0; }
+		if (now() > check) {
+			mic = aud_src_fd("mic", mic);
+			if (front_gain > 0) front = aud_src_fd("front", front);
+			check = now() + 2.0;
+		}
 		if (cap_dump) {
 			FILE *df = cap_dump;
 			for (int i = 0; i < AUD_FR; i++) fwrite(buf + nch * i, 2, 4, df);
@@ -1395,11 +1410,16 @@ static void *aud_capture(void *arg)
 			out("audio : capture : %lu périodes, crêtes voies 0..%d :%s\n", periods, nch - 1, l);
 			memset(peak, 0, sizeof peak); periods = 0; stat = now() + 15.0;
 		}
+		/* hors appel, les mots 0-1 portent le micro de façade, pas le combiné */
+		int call = call_on;
 		for (int i = 0; i < AUD_FR; i++) {
-			m[2 * i] = buf[nch * i];
-			m[2 * i + 1] = call_nb ? buf[nch * i] : buf[nch * i + 1];
+			m[2 * i] = call ? buf[nch * i] : 0;
+			m[2 * i + 1] = !call ? 0 : call_nb ? buf[nch * i] : buf[nch * i + 1];
+			int v = front_live && !call ? buf[nch * i] * front_gain : 0;
+			fr[i] = v > 32767 ? 32767 : v < -32768 ? -32768 : v;
 		}
 		if (mic >= 0 && write(mic, m, sizeof m) < 0) { /* personne n'écoute : on jette */ }
+		if (front >= 0 && write(front, fr, sizeof fr) < 0) { /* idem */ }
 	}
 	if (fd >= 0) close(fd);
 	return NULL;
@@ -1415,8 +1435,8 @@ static void audio_start(void)
 	 * on les retire au démarrage pour repartir de tubes à nous (sorties) ou
 	 * à créer par la session de l'utilisateur (micro). Utilisateurs système
 	 * seulement (uid < 1000) : jamais ceux d'une session en cours. */
-	static const char *const names[] = { "woofer", "tweeter", "handset", "mic" };
-	for (int i = 0; i < 4; i++) {
+	static const char *const names[] = { "woofer", "tweeter", "handset", "mic", "front" };
+	for (int i = 0; i < 5; i++) {
 		char path[64];
 		struct stat st;
 		snprintf(path, sizeof path, AUD_DIR "/%s", names[i]);
@@ -1429,11 +1449,12 @@ static void audio_start(void)
 	close(aud_fifo("woofer")); close(aud_fifo("tweeter")); close(aud_fifo("handset"));
 	/* module-pipe-source, lui, refuse un tube existant (mkfifo sans EEXIST) :
 	 * c'est PulseAudio qui crée /run/dvf99/mic, d'où le répertoire 1777, et
-	 * dvf99 l'ouvre quand il apparaît (aud_mic_fd). Un ancien tube créé par
+	 * dvf99 l'ouvre quand il apparaît (aud_src_fd). Idem pour front. Un ancien tube créé par
 	 * root est retiré. */
 	chmod(AUD_DIR, 01777);
 	struct stat st;
 	if (stat(AUD_DIR "/mic", &st) == 0 && st.st_uid == 0) unlink(AUD_DIR "/mic");
+	if (stat(AUD_DIR "/front", &st) == 0 && st.st_uid == 0) unlink(AUD_DIR "/front");
 	pthread_t t;
 	pthread_create(&t, NULL, aud_play, NULL);
 	pthread_detach(t);
@@ -1443,6 +1464,33 @@ static void audio_start(void)
 	pthread_detach(t);
 }
 static void on_stop(int sig) { (void)sig; stop_req = 1; }
+
+static uint32_t front_chan;
+static double front_retry;
+
+static void front_mic(int fd, struct decoder *d, int on)
+{
+	uint8_t b[16]; unsigned n;
+	int q = quiet; quiet = 1;
+	if (on) {
+		if (afe_alloc(fd, d, &front_chan, 0)) { front_chan = 0; front_retry = now() + 10.0; quiet = q; return; }
+		afe_connect(fd, d, 15, 34);			/* ADC1 ← DIGMIC1 */
+		afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, 39, "AFE_ENDPOINT_ENABLE (micro)");
+		channel_start(fd, d, front_chan, 0x000F, 1);
+		front_live = 1;
+	} else {
+		front_live = 0;
+		n = ie_media_channel(b, 0, front_chan, 0);
+		request(fd, d, EV_DEM_CHANNEL_STOP, b, n, "DEM_CHANNEL_STOP (micro)");
+		afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, 39, "AFE_ENDPOINT_DISABLE (micro)");
+		n = ie_media_channel(b, 0, front_chan, 0);
+		request(fd, d, EV_AFE_CHANNEL_DEALLOCATE, b, n, "AFE_CHANNEL_DEALLOCATE (micro)");
+		front_chan = 0;
+	}
+	quiet = q;
+	if (on) out("micro de façade : ouvert (canal 0x%x)\n", front_chan);
+	else out("micro de façade : fermé\n");
+}
 
 static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, int hold, int keep)
 {
@@ -1515,29 +1563,6 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 			channel_start(fd, d, tweeter, tw, 1);
 	}
 
-	/* Micro de façade (essai) : les « appareils » 2 à 5 de la bibliothèque
-	 * Android routent un micro vers l'ADC0 : 2 = micro numérique DIGMIC1 (15),
-	 * 3 = SINGIN0-SINGIN1 (11) via AMP_SINGIN0/1, 4 = DIFFIN0 (9) via
-	 * AMP_DIFFIN0, 5 = DIFFIN1 (10) via AMP_DIFFIN1. */
-	if (front_src >= 0) {
-		uint32_t fch;
-		out("6b) micro de façade : ADC0 ← %d, slots 0x%04x\n", front_src, front_slots);
-		if (!afe_alloc(fd, d, &fch, 0)) {
-			int pre1 = -1, pre2 = -1, bias = -1;
-			if (front_src == AFE_ADC_IN_DIFFIN0) { pre1 = AFE_AMP_DIFFIN0; bias = AFE_MIC0; }
-			else if (front_src == AFE_ADC_IN_DIFFIN0 + 1) { pre1 = AFE_AMP_DIFFIN1; bias = AFE_MIC1; }
-			else if (front_src == 11) { pre1 = AFE_AMP_SINGIN0; pre2 = AFE_AMP_SINGIN0 + 1; bias = AFE_MIC0; }
-			afe_connect(fd, d, 33, front_src);		/* ADC0 */
-			if (pre1 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, pre1, "AFE_ENDPOINT_ENABLE (préampli)");
-			if (pre2 >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, pre2, "AFE_ENDPOINT_ENABLE (préampli)");
-			if (bias >= 0) afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, bias, "AFE_ENDPOINT_ENABLE (polarisation)");
-			afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, 33, "AFE_ENDPOINT_ENABLE (ADC0)");
-			if (pre1 >= 0) set_gain(fd, d, pre1, front_gain);
-			if (pre2 >= 0) set_gain(fd, d, pre2, front_gain);
-			channel_start(fd, d, fch, front_slots, 1);
-		}
-	}
-
 	out("7) ampli du haut-parleur (GPIO D10 de la DVF99)\n");
 	spk_amp(fd, d, 1);
 
@@ -1563,9 +1588,23 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 		sigaction(SIGTERM, &sa, NULL);
 		sigaction(SIGINT, &sa, NULL);
 		int idle = audio_on && dac && spk_idle_s > 0;
+		int front_ok = audio_on && !audio_nomic && front_gain > 0;
+		if (front_ok) {		/* comme CMBSServer au démarrage, laissés actifs */
+			int q = quiet; quiet = 1;
+			afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, AFE_AMP_DIFFIN0, "AFE_ENDPOINT_ENABLE (AMP_DIFFIN0)");
+			afe_ep(fd, d, EV_AFE_ENDPOINT_ENABLE, AFE_MIC1, "AFE_ENDPOINT_ENABLE (MIC1)");
+			quiet = q;
+		}
 		spk_loud_ms = now_ms();
 		while (!stop_req) {
 			if (read_for(fd, d, idle ? 0.05 : 0.5) < 0) return 1;
+			/* le micro de façade cède les slots 0x000F au combiné pendant un appel */
+			call_on = d->call.active;
+			if (front_ok) {
+				int want = !d->call.active;
+				if (want && !front_chan && now() >= front_retry) front_mic(fd, d, 1);
+				else if (!want && front_chan) front_mic(fd, d, 0);
+			}
 			call_step(d);
 			if (!idle) continue;
 			int quiet_ms = (int)(now_ms() - spk_loud_ms);
@@ -1579,6 +1618,11 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 		}
 		if (!spk_ready) { spk_power(fd, d, 1, tweeter, tw); spk_ready = 1; }
 		out("arrêt demandé\n");
+		if (front_chan) front_mic(fd, d, 0);
+		if (front_ok) {
+			afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, AFE_MIC1, "AFE_ENDPOINT_DISABLE (MIC1)");
+			afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, AFE_AMP_DIFFIN0, "AFE_ENDPOINT_DISABLE (AMP_DIFFIN0)");
+		}
 		if (d->call.active) {		/* raccroche côté base */
 			uint8_t b[32], v[8]; unsigned n;
 			if (d->call.started) {
@@ -1915,7 +1959,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:F:Q:G:Z:B:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:Z:B:Y:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -1943,9 +1987,7 @@ int main(int argc, char **argv)
 		case 'Z': spk_idle_s = atoi(optarg); break;
 		case 'B': woofer_mode = atoi(optarg); break;
 		case 'I': settle_s = atoi(optarg); break;
-		case 'F': front_src = atoi(optarg); break;
-		case 'Q': front_slots = strtoul(optarg, NULL, 0); break;
-		case 'G': front_gain = atoi(optarg); break;
+		case 'Y': front_gain = atoi(optarg); break;
 		case 'D': audio_probe = atoi(optarg) % 3; break;
 		default: goto usage;
 		}

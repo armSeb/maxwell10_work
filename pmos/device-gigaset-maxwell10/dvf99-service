@@ -5,7 +5,8 @@
 #   DVF99_TWEETER=50                       tweeter level in % of its stream (headroom, treble clips at 100)
 #   DVF99_OPTS=                            extra dvf99 options, e.g. -N (no auto-answer),
 #                                          -Z 30 (speaker sleep after 30 s of silence, -Z 0: never),
-#                                          -B 1 (woofer on AMP_OUT2+OUT3 in phase, default OUT2 only)
+#                                          -B 1 (woofer on AMP_OUT2+OUT3 in phase, default OUT2 only),
+#                                          -Y 4 (front microphone digital gain, default 2; -Y 0: off)
 nv=${DVF99_NVRAM:-/var/lib/dvf99/nvram.bin}
 
 # First boot: import the base EEPROM from the untouched Android data partition
