@@ -471,6 +471,136 @@ static const uint8_t *ie_find(const uint8_t *p, unsigned n, unsigned type, unsig
  */
 static void call_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned n);
 
+/* ---------- événements et commande, pour le reste du système (service) ----------
+ * - état courant dans /run/dvf99/state (lignes clé=valeur, réécrit à chaque
+ *   changement) : call (appel du combiné en cours), cradle (combiné sur son
+ *   socle, -1 inconnu), battery (%, -1 inconnu), register (inscription
+ *   ouverte), registered (combinés inscrits depuis le démarrage du service) ;
+ * - événements : chaque exécutable de /etc/dvf99/event.d est lancé (détaché, en
+ *   root) avec EVENT [VALEUR] : call start|end, cradle on|off, battery N,
+ *   register open|closed, registered, in-range ;
+ * - touches standard KEY_PICKUP_PHONE / KEY_HANGUP_PHONE sur un périphérique
+ *   d'entrée virtuel « DECT handset » (uinput) au début et à la fin d'un appel ;
+ * - commandes dans le tube /run/dvf99/ctl (groupe audio) : « register [S] »
+ *   (inscription ouverte S secondes, 120 par défaut), « register stop ». */
+#include <dirent.h>
+#include <grp.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <linux/uinput.h>
+#include <sys/wait.h>
+#define EVENT_DIR	"/etc/dvf99/event.d"
+#define AUD_DIR		"/run/dvf99"
+static int events_on;			/* mode service uniquement */
+static struct { int call, cradle, battery, reg, registered; } st = { 0, -1, -1, 0, 0 };
+static int ui_fd = -1;
+
+static void state_write(void)
+{
+	if (!events_on) return;
+	FILE *f = fopen(AUD_DIR "/state.tmp", "w");
+	if (!f) return;
+	fprintf(f, "call=%d\ncradle=%d\nbattery=%d\nregister=%d\nregistered=%d\n",
+		st.call, st.cradle, st.battery, st.reg, st.registered);
+	fclose(f);
+	chmod(AUD_DIR "/state.tmp", 0644);
+	rename(AUD_DIR "/state.tmp", AUD_DIR "/state");
+}
+
+static void ui_open(void)
+{
+	int fd = open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+	if (fd < 0) { out("événements : /dev/uinput : %s\n", strerror(errno)); return; }
+	struct uinput_setup us = { .id = { .bustype = BUS_VIRTUAL, .vendor = 0x1d6b, .product = 0xdec7 } };
+	snprintf(us.name, sizeof us.name, "DECT handset");
+	if (ioctl(fd, UI_SET_EVBIT, EV_KEY) < 0 || ioctl(fd, UI_SET_KEYBIT, KEY_PICKUP_PHONE) < 0 ||
+	    ioctl(fd, UI_SET_KEYBIT, KEY_HANGUP_PHONE) < 0 || ioctl(fd, UI_DEV_SETUP, &us) < 0 ||
+	    ioctl(fd, UI_DEV_CREATE) < 0) {
+		out("événements : uinput : %s\n", strerror(errno)); close(fd); return;
+	}
+	ui_fd = fd;
+}
+
+static void ui_key(int code)
+{
+	if (ui_fd < 0) return;
+	struct input_event e[4] = {
+		{ .type = EV_KEY, .code = code, .value = 1 }, { .type = EV_SYN, .code = SYN_REPORT },
+		{ .type = EV_KEY, .code = code, .value = 0 }, { .type = EV_SYN, .code = SYN_REPORT },
+	};
+	if (write(ui_fd, e, sizeof e) < 0) { /* file pleine : touche perdue */ }
+}
+
+static int ev_filter(const struct dirent *e) { return e->d_name[0] != '.'; }
+
+/* lance les scripts de EVENT_DIR, détachés (double fork : pas de zombie) */
+static void emit(const char *ev, const char *val)
+{
+	if (!events_on) return;
+	out("événement : %s%s%s\n", ev, val ? " " : "", val ? val : "");
+	struct dirent **l;
+	int n = scandir(EVENT_DIR, &l, ev_filter, alphasort);
+	for (int i = 0; i < n; i++) {
+		char path[512];
+		snprintf(path, sizeof path, EVENT_DIR "/%s", l[i]->d_name);
+		free(l[i]);
+		if (access(path, X_OK)) continue;
+		pid_t p = fork();
+		if (p == 0) {
+			if (fork() == 0) {
+				setsid();
+				int nul = open("/dev/null", O_RDWR);
+				if (nul >= 0) { dup2(nul, 0); dup2(nul, 1); }
+				execl(path, path, ev, val, (char *)NULL);
+				_exit(127);
+			}
+			_exit(0);
+		}
+		if (p > 0) waitpid(p, NULL, 0);
+	}
+	if (n >= 0) free(l);
+}
+
+static void ev_call(int on)
+{
+	if (st.call == on) return;
+	st.call = on; state_write();
+	ui_key(on ? KEY_PICKUP_PHONE : KEY_HANGUP_PHONE);
+	emit("call", on ? "start" : "end");
+}
+
+/* tube de commande ; la commande est exécutée par le fil principal */
+static int ctl_fd = -1;
+static void ctl_open(void)
+{
+	unlink(AUD_DIR "/ctl");
+	if (mkfifo(AUD_DIR "/ctl", 0620) < 0) { out("commande : %s/ctl : %s\n", AUD_DIR, strerror(errno)); return; }
+	struct group *g = getgrnam("audio");
+	if (g && chown(AUD_DIR "/ctl", 0, g->gr_gid) < 0) { /* reste root seul */ }
+	chmod(AUD_DIR "/ctl", 0620);
+	ctl_fd = open(AUD_DIR "/ctl", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+}
+
+/* lit une commande complète (une ligne) ; 0 si rien */
+static int ctl_read(char *line, size_t sz)
+{
+	static char buf[256]; static size_t n;
+	if (ctl_fd < 0) return 0;
+	ssize_t r = read(ctl_fd, buf + n, sizeof buf - 1 - n);
+	if (r > 0) n += r;
+	char *nl = memchr(buf, '\n', n);
+	if (!nl) { if (n >= sizeof buf - 1) n = 0; return 0; }
+	size_t len = nl - buf;
+	if (len >= sz) len = sz - 1;
+	memcpy(line, buf, len); line[len] = 0;
+	n -= nl + 1 - buf;
+	memmove(buf, nl + 1, n);
+	return 1;
+}
+
+static double reg_until;		/* fin de l'inscription ouverte, 0 = fermée */
+
+
 /* Batterie du combiné. L'événement 274 (données propres à Gigaset) porte dans
  * son IE 32 (DATA, u16 longueur + octets) « 81 05 05 01 02 S N » : S = 1 combiné
  * posé sur son socle (raccroché, donc en charge), 0 décroché ; N = niveau de
@@ -501,6 +631,12 @@ static void hs_battery(const uint8_t *p, unsigned n)
 	if (last_level < 0) hs_bat_write(HS_BAT_SYSFS "present", "1");
 	if (level != last_level || cradle != last_cradle)
 		out("combiné : batterie %d %%, %s\n", level, cradle ? "sur son socle (en charge)" : "décroché");
+	st.battery = level;
+	if (cradle != last_cradle) { st.cradle = cradle; state_write(); emit("cradle", cradle ? "on" : "off"); }
+	if (level != last_level) {
+		char lv[8]; snprintf(lv, sizeof lv, "%d", level);
+		state_write(); emit("battery", lv);
+	}
 	last_level = level; last_cradle = cradle;
 }
 
@@ -513,6 +649,12 @@ static void on_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigned 
 	}
 	if (ev == EV_TARGET_UP) d->target_ups++;
 	if (ev == 274) { d->hs_events++; if (d->fd >= 0) hs_battery(p, n); }
+	if (ev == 7) {					/* CMBS_EV_DSR_HS_REGISTERED */
+		st.registered++; state_write();
+		emit("registered", NULL);
+		if (reg_until) reg_until = now() + 3.0;	/* écritures EEPROM, puis fermeture */
+	}
+	if (ev == 8) emit("in-range", NULL);		/* CMBS_EV_DSR_HS_IN_RANGE */
 	if (ev == CMD_HELLO_RPLY) {
 		d->hello_len = n < sizeof d->hello ? n : sizeof d->hello;
 		memcpy(d->hello, p, d->hello_len);
@@ -815,6 +957,7 @@ static void call_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigne
 		if (d->call.active) { out("   appel : déjà un appel en cours, ignoré\n"); return; }
 		memset(&d->call, 0, sizeof d->call);
 		d->call.active = 1; d->call.inst = inst;
+		ev_call(1);
 		out("   appel : le combiné appelle (instance %u)%s\n", inst,
 		    auto_answer ? ", décroché automatique" : "");
 		d->call.answer = auto_answer;
@@ -825,6 +968,7 @@ static void call_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigne
 	} else if (ev == EV_CALL_RELEASECOMPLETE && d->call.active && inst == d->call.inst) {
 		out("   appel : terminé\n");
 		memset(&d->call, 0, sizeof d->call);
+		ev_call(0);
 	}
 }
 
@@ -876,6 +1020,7 @@ static void call_step(struct decoder *d)
 		out("   appel : CALL_RELEASECOMPLETE\n");
 		call_send(d, EV_CALL_RELEASECOMPLETE, b, n);
 		memset(&d->call, 0, sizeof d->call);
+		ev_call(0);
 	}
 }
 
@@ -1142,7 +1287,6 @@ static volatile sig_atomic_t stop_req;
 #include <sys/ioctl.h>
 #include <sound/asound.h>
 
-#define AUD_DIR		"/run/dvf99"
 #define AUD_FR		160		/* trames 8 kHz par période (20 ms) */
 #define AUD_PERIODS	4
 #define AUD_CH		6
@@ -1579,6 +1723,44 @@ static void front_mic(int fd, struct decoder *d, int on)
 	else out("micro de façade : fermé\n");
 }
 
+/* inscription des combinés depuis le service (sans arrêt ni redémarrage) */
+static void reg_open(int fd, struct decoder *d, int secs)
+{
+	if (secs < 10) secs = 10;
+	if (secs > 600) secs = 600;
+	uint8_t b[16], v[4];
+	put32(v, secs);
+	unsigned n = ie_add(b, 0, 24, v, 4);
+	if (request(fd, d, 9, b, n, "CORD_OPENREG")) { emit("register", "failed"); return; }
+	reg_until = now() + secs;
+	st.reg = 1; state_write();
+	out("inscription ouverte %d s : mettre le combiné en mode inscription\n", secs);
+	emit("register", "open");
+}
+static void reg_close(int fd, struct decoder *d)
+{
+	uint8_t b[4] = { 0 };
+	request(fd, d, 11, b, 0, "CORD_CLOSEREG");
+	reg_until = 0;
+	st.reg = 0; state_write();
+	out("inscription fermée\n");
+	emit("register", "closed");
+}
+static void ctl_step(int fd, struct decoder *d)
+{
+	char line[128];
+	while (ctl_read(line, sizeof line)) {
+		char cmd[32] = "", arg[32] = "";
+		if (sscanf(line, "%31s %31s", cmd, arg) < 1) continue;
+		out("commande : %s\n", line);
+		if (!strcmp(cmd, "register")) {
+			if (!strcmp(arg, "stop")) { if (reg_until) reg_close(fd, d); }
+			else reg_open(fd, d, arg[0] ? atoi(arg) : 120);
+		} else out("commande inconnue (register [S] | register stop)\n");
+	}
+	if (reg_until && now() > reg_until) reg_close(fd, d);
+}
+
 static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, int hold, int keep)
 {
 	if (do_init(fd, d)) return 1;
@@ -1690,7 +1872,12 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 			quiet = q;
 		}
 		spk_loud_ms = now_ms();
+		events_on = 1;
+		ui_open();
+		ctl_open();
+		state_write();
 		while (!stop_req) {
+			ctl_step(fd, d);
 			if (read_for(fd, d, idle ? 0.05 : 0.5) < 0) return 1;
 			/* le micro de façade cède les slots 0x000F au combiné pendant un appel */
 			call_on = d->call.active;
@@ -1712,6 +1899,7 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 		}
 		if (!spk_ready) { spk_power(fd, d, 1, tweeter, tw); spk_ready = 1; }
 		out("arrêt demandé\n");
+		if (reg_until) reg_close(fd, d);
 		if (front_chan) front_mic(fd, d, 0);
 		if (front_ok) {
 			afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, AFE_MIC1, "AFE_ENDPOINT_DISABLE (MIC1)");

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Appairer un combiné DECT
+Name[en]=Pair a DECT handset
+Comment=Ouvre l'inscription de la base DECT pendant 2 minutes
+Comment[en]=Opens DECT base registration for 2 minutes
+Exec=dvf99ctl register 120 --notify
+Icon=phone
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=DECT;combiné;handset;appairage;pairing;
+X-Purism-FormFactor=Workstation;Mobile;

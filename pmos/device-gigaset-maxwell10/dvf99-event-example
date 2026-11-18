@@ -1,0 +1,16 @@
+#!/bin/sh
+# Exemple de script d'événement de la base DECT. Copier dans /etc/dvf99/event.d/
+# (exécutable). Appelé en root, détaché, avec : EVENT [VALEUR]
+#   call start|end       appel du combiné (touche verte) / fin d'appel
+#   cradle on|off        combiné posé sur / retiré de son socle
+#   battery N            niveau de batterie du combiné (%)
+#   register open|closed|failed   inscription des combinés
+#   registered           un combiné vient de s'inscrire
+#   in-range             combiné de nouveau joignable
+# L'état courant est aussi dans /run/dvf99/state.
+#
+# Exemple : webhook Home Assistant (automatisation « Webhook », id maxwell_dect)
+#HA=http://homeassistant.local:8123/api/webhook/maxwell_dect
+#curl -s -m 5 -X POST -H 'Content-Type: application/json' \
+#	-d "{\"event\":\"$1\",\"value\":\"${2:-}\"}" "$HA"
+logger -t dvf99-event "$*"

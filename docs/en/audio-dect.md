@@ -124,16 +124,44 @@ The pairing (and the DECT identity of the base) live in the base EEPROM, which t
 host: `/var/lib/dvf99/nvram.bin`, imported from Android (`/data/cmbs/nvram.bin`) on first boot. A handset
 paired under Android therefore works directly.
 
-To pair a handset again:
+To pair a new handset, without stopping the service:
 
-```sh
-sudo systemctl stop dvf99
-sudo dvf99 -e /var/lib/dvf99/nvram.bin register     # registration open for 120 s
-# put the handset in registration mode now
-```
+- launch **Pair a DECT handset** from the application list (a notification when it opens, then one with
+  the result);
+- or from the command line: `dvf99ctl register` (120 s; `dvf99ctl register 60`, `dvf99ctl register stop`);
 
-then power cycle the tablet. The base writes the new pairing into `nvram.bin`: from then on, **do not
-restore an older copy** of the file (the handset and the base would no longer share the same key).
+then put the handset in registration mode. Registration closes by itself 3 s after a handset registers,
+or when the delay runs out. The base writes the new pairing to `nvram.bin`: from then on, **never restore
+an older copy** of the file (handset and base would no longer share the same key).
+
+The command goes through the `/run/dvf99/ctl` pipe, open to the `audio` group (the postmarketOS user is a
+member; otherwise `sudo adduser $USER audio`). Without the service: `sudo systemctl stop dvf99` then
+`sudo dvf99 -e /var/lib/dvf99/nvram.bin register`.
+
+## Handset events
+
+The service publishes the handset state in three ways, for the desktop as well as home automation:
+
+- **current state** in `/run/dvf99/state` (`dvf99ctl state`, `dvf99ctl watch`):
+
+  ```
+  call=0          handset call in progress (green key)
+  cradle=1        handset on its cradle (-1: not known yet)
+  battery=92      handset battery, % (-1: not known yet)
+  register=0      registration open
+  registered=0    handsets registered since the service started
+  ```
+
+- **event scripts**: every executable in `/etc/dvf99/event.d/` is run (as root, detached) with
+  `EVENT [VALUE]`: `call start|end`, `cradle on|off`, `battery N`, `register open|closed|failed`,
+  `registered`, `in-range`. Example, with a commented Home Assistant webhook:
+  `/usr/share/doc/dvf99/event-example`;
+- **standard keys**: a virtual input device "DECT handset" emits `KEY_PICKUP_PHONE` when a call starts
+  and `KEY_HANGUP_PHONE` when it ends. These are the Linux codes meant for picking up and hanging up
+  (headsets, USB handsets); a desktop shortcut or `evtest` can listen to them.
+
+"Off-hook" has two meanings here: `cradle off` (handset lifted from its cradle, derived from the battery
+report, may lag by a few seconds) and `call start` (green key, immediate).
 
 ## Robustness
 

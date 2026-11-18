@@ -1,0 +1,66 @@
+#!/bin/sh
+# dvf99ctl — commande de la base DECT (service dvf99), pour l'utilisateur.
+#
+#   dvf99ctl register [S] [--notify]  ouvre l'inscription S secondes (120), attend
+#                                     un combiné ; --notify : notifications du bureau
+#   dvf99ctl register stop            referme l'inscription
+#   dvf99ctl state                    état courant (call, cradle, battery, register…)
+#   dvf99ctl watch                    affiche chaque changement d'état
+#
+# Le tube /run/dvf99/ctl est ouvert au groupe audio.
+set -u
+run=/run/dvf99
+ctl=$run/ctl
+state=$run/state
+
+get() { sed -n "s/^$1=//p" "$state" 2>/dev/null; }
+
+say() {
+	echo "$1"
+	[ "$notify" = 1 ] && command -v notify-send >/dev/null &&
+		notify-send -a "Base DECT" -i phone "${2:-Base DECT}" "$1"
+	return 0
+}
+
+send() {
+	[ -p "$ctl" ] || { say "service dvf99 absent ($ctl)" "Erreur"; exit 1; }
+	[ -w "$ctl" ] || { say "pas le droit d'écrire dans $ctl (groupe audio)" "Erreur"; exit 1; }
+	echo "$*" > "$ctl"
+}
+
+notify=0
+for a in "$@"; do [ "$a" = --notify ] && notify=1; done
+
+case "${1:-}" in
+register)
+	if [ "${2:-}" = stop ]; then send register stop; exit; fi
+	secs=120
+	case "${2:-}" in [0-9]*) secs=$2 ;; esac
+	before=$(get registered); before=${before:-0}
+	send register "$secs"
+	i=0
+	while [ "$(get register)" != 1 ] && [ $i -lt 20 ]; do sleep 0.25; i=$((i + 1)); done
+	[ "$(get register)" = 1 ] || { say "l'inscription n'a pas pu s'ouvrir (journalctl -u dvf99)" "Erreur"; exit 1; }
+	say "Inscription ouverte $secs s : mettez le combiné en mode inscription." "Appairage DECT"
+	while [ "$(get register)" = 1 ]; do sleep 1; done
+	if [ "$(get registered)" -gt "$before" ] 2>/dev/null; then
+		say "Combiné inscrit." "Appairage DECT"
+	else
+		say "Aucun combiné inscrit." "Appairage DECT"; exit 2
+	fi
+	;;
+state)
+	cat "$state"
+	;;
+watch)
+	last=
+	while :; do
+		cur=$(cat "$state" 2>/dev/null | tr '\n' ' ')
+		[ "$cur" != "$last" ] && { echo "$(date +%T) $cur"; last=$cur; }
+		sleep 0.5
+	done
+	;;
+*)
+	sed -n '2,10s/^# \{0,1\}//p' "$0"; exit 1
+	;;
+esac

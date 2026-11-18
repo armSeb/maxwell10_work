@@ -128,16 +128,44 @@ L'appairage (et l'identité DECT de la base) sont dans l'EEPROM de la base, que 
 l'hôte : `/var/lib/dvf99/nvram.bin`, importée d'Android (`/data/cmbs/nvram.bin`) au premier démarrage.
 Un combiné appairé sous Android fonctionne donc directement.
 
-Pour appairer de nouveau un combiné :
+Pour appairer un nouveau combiné, sans arrêter le service :
 
-```sh
-sudo systemctl stop dvf99
-sudo dvf99 -e /var/lib/dvf99/nvram.bin register     # inscription ouverte 120 s
-# mettre maintenant le combiné en mode inscription
-```
+- lancer **Appairer un combiné DECT** dans la liste des applications (notification à l'ouverture, puis
+  au résultat) ;
+- ou, en ligne de commande : `dvf99ctl register` (120 s ; `dvf99ctl register 60`, `dvf99ctl register stop`) ;
 
-puis couper le courant de la tablette. La base écrit le nouvel appairage dans `nvram.bin` : dès lors,
-**ne plus restaurer une ancienne copie** du fichier (le combiné et la base n'auraient plus la même clé).
+puis mettre le combiné en mode inscription. L'inscription se referme d'elle-même 3 s après l'inscription
+d'un combiné, ou à la fin du délai. La base écrit le nouvel appairage dans `nvram.bin` : dès lors, **ne
+plus restaurer une ancienne copie** du fichier (le combiné et la base n'auraient plus la même clé).
+
+La commande passe par le tube `/run/dvf99/ctl`, ouvert au groupe `audio` (l'utilisateur de postmarketOS
+en fait partie ; sinon `sudo adduser $USER audio`). Sans le service : `sudo systemctl stop dvf99` puis
+`sudo dvf99 -e /var/lib/dvf99/nvram.bin register`.
+
+## Événements du combiné
+
+Le service publie l'état du combiné de trois façons, pour le bureau comme pour la domotique :
+
+- **état courant** dans `/run/dvf99/state` (`dvf99ctl state`, `dvf99ctl watch`) :
+
+  ```
+  call=0          appel du combiné en cours (touche verte)
+  cradle=1        combiné sur son socle (-1 : pas encore connu)
+  battery=92      batterie du combiné, % (-1 : pas encore connue)
+  register=0      inscription ouverte
+  registered=0    combinés inscrits depuis le démarrage du service
+  ```
+
+- **scripts d'événement** : chaque exécutable de `/etc/dvf99/event.d/` est lancé (en root, détaché) avec
+  `EVENT [VALEUR]` : `call start|end`, `cradle on|off`, `battery N`, `register open|closed|failed`,
+  `registered`, `in-range`. Exemple, avec un webhook Home Assistant en commentaire :
+  `/usr/share/doc/dvf99/event-example` ;
+- **touches standard** : un périphérique d'entrée virtuel « DECT handset » émet `KEY_PICKUP_PHONE` au
+  début d'un appel et `KEY_HANGUP_PHONE` à la fin. Ce sont les codes Linux prévus pour décrocher et
+  raccrocher (casques, combinés USB) ; un raccourci du bureau ou `evtest` peut s'y abonner.
+
+« Décroché » a deux sens ici : `cradle off` (combiné retiré de son socle, déduit de la batterie, peut
+arriver avec quelques secondes de retard) et `call start` (touche verte, immédiat).
 
 ## Robustesse
 

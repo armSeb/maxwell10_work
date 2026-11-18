@@ -2,7 +2,7 @@
 pkgname=device-gigaset-maxwell10
 pkgdesc="Gigaset Maxwell 10"
 pkgver=1
-pkgrel=27
+pkgrel=28
 url="https://github.com/armSeb/maxwell10_work"
 license="MIT"
 arch="armv7"
@@ -30,6 +30,9 @@ source="
 	dvf99-pulse
 	dvf99-pulse.service
 	dvf99-tmpfiles.conf
+	dvf99ctl
+	dvf99-register.desktop
+	dvf99-event-example
 	maxwell-bluetooth
 	maxwell-bluetooth.service
 	80-gigaset-maxwell10-user.preset
@@ -67,6 +70,12 @@ package() {
 	install -Dm644 "$srcdir"/80-gigaset-maxwell10-user.preset \
 		"$pkgdir"/usr/lib/systemd/user-preset/80-gigaset-maxwell10.preset
 	install -Dm644 "$srcdir"/dvf99-tmpfiles.conf "$pkgdir"/usr/lib/tmpfiles.d/dvf99.conf
+	install -Dm755 "$srcdir"/dvf99ctl "$pkgdir"/usr/bin/dvf99ctl
+	install -Dm644 "$srcdir"/dvf99-register.desktop \
+		"$pkgdir"/usr/share/applications/dvf99-register.desktop
+	install -Dm755 "$srcdir"/dvf99-event-example \
+		"$pkgdir"/usr/share/doc/dvf99/event-example
+	install -dm755 "$pkgdir"/etc/dvf99/event.d
 	install -Dm755 "$srcdir"/maxwell-bluetooth "$pkgdir"/usr/libexec/maxwell-bluetooth
 	install -Dm644 "$srcdir"/maxwell-bluetooth.service \
 		"$pkgdir"/usr/lib/systemd/system/maxwell-bluetooth.service
