@@ -134,6 +134,14 @@ then put the handset in registration mode. Registration closes by itself 3 s aft
 or when the delay runs out. The base writes the new pairing to `nvram.bin`: from then on, **never restore
 an older copy** of the file (handset and base would no longer share the same key).
 
+To **deregister**: `dvf99ctl deregister all` (asks for confirmation; `--yes` for scripts), or a mask for
+a single handset (`0x1` = handset 1, `0x2` = handset 2…). This matches Android's handset deletion
+(`CMBS_EV_DSR_HS_DELETE`, mask `0xFFFF` = all). There is deliberately no launcher for it: one wrong tap
+would mean pairing everything again.
+
+To **find the handset**: launcher **Ring the DECT handset**, or `dvf99ctl page` (30 s;
+`dvf99ctl page stop`).
+
 The command goes through the `/run/dvf99/ctl` pipe, open to the `audio` group (the postmarketOS user is a
 member; otherwise `sudo adduser $USER audio`). Without the service: `sudo systemctl stop dvf99` then
 `sudo dvf99 -e /var/lib/dvf99/nvram.bin register`.
@@ -154,7 +162,7 @@ The service publishes the handset state in three ways, for the desktop as well a
 
 - **event scripts**: every executable in `/etc/dvf99/event.d/` is run (as root, detached) with
   `EVENT [VALUE]`: `call start|end`, `cradle on|off`, `battery N`, `register open|closed|failed`,
-  `registered`, `in-range`. Example, with a commented Home Assistant webhook:
+  `registered`, `deregistered all|MASK`, `deregister failed`, `page start|stop`, `in-range`. Example, with a commented Home Assistant webhook:
   `/usr/share/doc/dvf99/event-example`;
 - **standard keys**: a virtual input device "DECT handset" emits `KEY_PICKUP_PHONE` when a call starts
   and `KEY_HANGUP_PHONE` when it ends. These are the Linux codes meant for picking up and hanging up

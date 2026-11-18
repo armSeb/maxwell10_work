@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Faire sonner le combiné DECT
+Name[en]=Ring the DECT handset
+Comment=Fait sonner les combinés pendant 30 secondes pour les retrouver
+Comment[en]=Rings the handsets for 30 seconds to find them
+Exec=dvf99ctl page 30
+Icon=phone
+Terminal=false
+Categories=Utility;
+Keywords=DECT;combiné;handset;page;trouver;find;
+X-Purism-FormFactor=Workstation;Mobile;

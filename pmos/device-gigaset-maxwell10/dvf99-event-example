@@ -6,6 +6,8 @@
 #   battery N            niveau de batterie du combiné (%)
 #   register open|closed|failed   inscription des combinés
 #   registered           un combiné vient de s'inscrire
+#   deregistered all|MASQUE, deregister failed   désinscription
+#   page start|stop      sonnerie de recherche du combiné
 #   in-range             combiné de nouveau joignable
 # L'état courant est aussi dans /run/dvf99/state.
 #

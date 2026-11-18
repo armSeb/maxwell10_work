@@ -32,6 +32,7 @@ source="
 	dvf99-tmpfiles.conf
 	dvf99ctl
 	dvf99-register.desktop
+	dvf99-page.desktop
 	dvf99-event-example
 	maxwell-bluetooth
 	maxwell-bluetooth.service
@@ -73,6 +74,8 @@ package() {
 	install -Dm755 "$srcdir"/dvf99ctl "$pkgdir"/usr/bin/dvf99ctl
 	install -Dm644 "$srcdir"/dvf99-register.desktop \
 		"$pkgdir"/usr/share/applications/dvf99-register.desktop
+	install -Dm644 "$srcdir"/dvf99-page.desktop \
+		"$pkgdir"/usr/share/applications/dvf99-page.desktop
 	install -Dm755 "$srcdir"/dvf99-event-example \
 		"$pkgdir"/usr/share/doc/dvf99/event-example
 	install -dm755 "$pkgdir"/etc/dvf99/event.d

@@ -138,6 +138,14 @@ puis mettre le combiné en mode inscription. L'inscription se referme d'elle-mê
 d'un combiné, ou à la fin du délai. La base écrit le nouvel appairage dans `nvram.bin` : dès lors, **ne
 plus restaurer une ancienne copie** du fichier (le combiné et la base n'auraient plus la même clé).
 
+Pour **désinscrire** : `dvf99ctl deregister all` (demande confirmation ; `--yes` pour un script), ou un
+masque pour un seul combiné (`0x1` = combiné 1, `0x2` = combiné 2…). C'est l'équivalent de la suppression
+de combiné d'Android (`CMBS_EV_DSR_HS_DELETE`, masque `0xFFFF` = tous). Pas de lanceur pour celle-ci,
+volontairement : un appui malheureux obligerait à tout réappairer.
+
+Pour **retrouver le combiné** : lanceur **Faire sonner le combiné DECT**, ou `dvf99ctl page` (30 s ;
+`dvf99ctl page stop`).
+
 La commande passe par le tube `/run/dvf99/ctl`, ouvert au groupe `audio` (l'utilisateur de postmarketOS
 en fait partie ; sinon `sudo adduser $USER audio`). Sans le service : `sudo systemctl stop dvf99` puis
 `sudo dvf99 -e /var/lib/dvf99/nvram.bin register`.
@@ -158,7 +166,7 @@ Le service publie l'état du combiné de trois façons, pour le bureau comme pou
 
 - **scripts d'événement** : chaque exécutable de `/etc/dvf99/event.d/` est lancé (en root, détaché) avec
   `EVENT [VALEUR]` : `call start|end`, `cradle on|off`, `battery N`, `register open|closed|failed`,
-  `registered`, `in-range`. Exemple, avec un webhook Home Assistant en commentaire :
+  `registered`, `deregistered all|MASQUE`, `deregister failed`, `page start|stop`, `in-range`. Exemple, avec un webhook Home Assistant en commentaire :
   `/usr/share/doc/dvf99/event-example` ;
 - **touches standard** : un périphérique d'entrée virtuel « DECT handset » émet `KEY_PICKUP_PHONE` au
   début d'un appel et `KEY_HANGUP_PHONE` à la fin. Ce sont les codes Linux prévus pour décrocher et

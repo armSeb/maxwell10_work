@@ -4,6 +4,9 @@
 #   dvf99ctl register [S] [--notify]  ouvre l'inscription S secondes (120), attend
 #                                     un combiné ; --notify : notifications du bureau
 #   dvf99ctl register stop            referme l'inscription
+#   dvf99ctl deregister all [--yes]   désinscrit tous les combinés (ou un masque :
+#                                     0x1 = combiné 1, 0x2 = combiné 2…)
+#   dvf99ctl page [S] | page stop     fait sonner les combinés S secondes (30)
 #   dvf99ctl state                    état courant (call, cradle, battery, register…)
 #   dvf99ctl watch                    affiche chaque changement d'état
 #
@@ -49,6 +52,19 @@ register)
 		say "Aucun combiné inscrit." "Appairage DECT"; exit 2
 	fi
 	;;
+deregister)
+	what=${2:-}
+	case "$what" in all|0x[0-9a-fA-F]*|[0-9]*) ;; *) echo "dvf99ctl deregister all|MASQUE" >&2; exit 1 ;; esac
+	if [ "${3:-}" != --yes ]; then
+		printf 'Désinscrire %s ? Le combiné devra être appairé de nouveau. [o/N] ' "$what"
+		read -r r; case "$r" in o|O|y|Y) ;; *) exit 1 ;; esac
+	fi
+	send deregister "$what"
+	say "Désinscription demandée ($what) : voir journalctl -u dvf99." "Base DECT"
+	;;
+page)
+	case "${2:-}" in stop) send page stop ;; [0-9]*) send page "$2" ;; *) send page 30 ;; esac
+	;;
 state)
 	cat "$state"
 	;;
@@ -61,6 +77,6 @@ watch)
 	done
 	;;
 *)
-	sed -n '2,10s/^# \{0,1\}//p' "$0"; exit 1
+	sed -n '2,13s/^# \{0,1\}//p' "$0"; exit 1
 	;;
 esac

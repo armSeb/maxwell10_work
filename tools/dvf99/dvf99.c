@@ -482,7 +482,9 @@ static void call_frame(struct decoder *d, unsigned ev, const uint8_t *p, unsigne
  * - touches standard KEY_PICKUP_PHONE / KEY_HANGUP_PHONE sur un périphérique
  *   d'entrée virtuel « DECT handset » (uinput) au début et à la fin d'un appel ;
  * - commandes dans le tube /run/dvf99/ctl (groupe audio) : « register [S] »
- *   (inscription ouverte S secondes, 120 par défaut), « register stop ». */
+ *   (inscription ouverte S secondes, 120 par défaut), « register stop »,
+ *   « deregister all|MASQUE » (désinscrit les combinés), « page [S] » (fait
+ *   sonner les combinés S secondes, 30 par défaut), « page stop ». */
 #include <dirent.h>
 #include <grp.h>
 #include <sys/ioctl.h>
@@ -1746,6 +1748,29 @@ static void reg_close(int fd, struct decoder *d)
 	out("inscription fermée\n");
 	emit("register", "closed");
 }
+/* désinscription (CMBS_EV_DSR_HS_DELETE = 5, IE HANDSETS = masque u16, 0xFFFF =
+ * tous, comme cmbs_dsr_hs_Delete) et recherche du combiné (HS_PAGE_START = 1 /
+ * HS_PAGE_STOP = 3, cmbs_dsr_hs_Page) */
+static double page_until;
+static int hs_cmd(int fd, struct decoder *d, unsigned ev, unsigned mask, const char *what)
+{
+	uint8_t b[8], v[2] = { mask & 0xff, mask >> 8 };
+	unsigned n = ie_add(b, 0, 28, v, 2);
+	return request(fd, d, ev, b, n, what);
+}
+static void page(int fd, struct decoder *d, int secs)
+{
+	if (secs > 0) {
+		if (hs_cmd(fd, d, 1, 0xFFFF, "HS_PAGE_START")) return;
+		page_until = now() + (secs > 120 ? 120 : secs);
+		emit("page", "start");
+	} else {
+		hs_cmd(fd, d, 3, 0xFFFF, "HS_PAGE_STOP");
+		page_until = 0;
+		emit("page", "stop");
+	}
+}
+
 static void ctl_step(int fd, struct decoder *d)
 {
 	char line[128];
@@ -1756,9 +1781,18 @@ static void ctl_step(int fd, struct decoder *d)
 		if (!strcmp(cmd, "register")) {
 			if (!strcmp(arg, "stop")) { if (reg_until) reg_close(fd, d); }
 			else reg_open(fd, d, arg[0] ? atoi(arg) : 120);
-		} else out("commande inconnue (register [S] | register stop)\n");
+		} else if (!strcmp(cmd, "deregister") && arg[0]) {
+			/* « all » ou masque (bit 0 = combiné 1) ; jamais sans argument */
+			unsigned mask = !strcmp(arg, "all") ? 0xFFFF : strtoul(arg, NULL, 0) & 0xFFFF;
+			if (!mask) continue;
+			if (hs_cmd(fd, d, 5, mask, "HS_DELETE")) emit("deregister", "failed");
+			else { read_for(fd, d, 2.0); emit("deregistered", arg); }	/* écriture EEPROM */
+		} else if (!strcmp(cmd, "page")) {
+			page(fd, d, !strcmp(arg, "stop") ? 0 : arg[0] ? atoi(arg) : 30);
+		} else out("commande inconnue (register [S] | register stop | deregister all|MASQUE | page [S] | page stop)\n");
 	}
 	if (reg_until && now() > reg_until) reg_close(fd, d);
+	if (page_until && now() > page_until) page(fd, d, 0);
 }
 
 static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, int hold, int keep)
@@ -1900,6 +1934,7 @@ static int mode_speaker(int fd, struct decoder *d, int src, int gain, int tone, 
 		if (!spk_ready) { spk_power(fd, d, 1, tweeter, tw); spk_ready = 1; }
 		out("arrêt demandé\n");
 		if (reg_until) reg_close(fd, d);
+		if (page_until) page(fd, d, 0);
 		if (front_chan) front_mic(fd, d, 0);
 		if (front_ok) {
 			afe_ep(fd, d, EV_AFE_ENDPOINT_DISABLE, AFE_MIC1, "AFE_ENDPOINT_DISABLE (MIC1)");
