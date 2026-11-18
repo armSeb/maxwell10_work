@@ -30,7 +30,7 @@ can drive from Linux.
 | Hardware video codec (CODA960 VPU) | 🧪 | firmware (copied from Android) loads, V4L2 codec nodes registered; decoding not tested yet |
 | Handset battery | ✅ | shown as the system battery, level and charging state (kernel patch 0006 + dvf99) |
 | Front microphone | ✅ | PulseAudio input « Micro de façade » (default), 16 kHz; muted during a handset call |
-| HDMI, ambient light sensor | ⏳ | not done |
+| HDMI (micro-HDMI at the back) | ⏳ | not done, untested (no adapter) |
 
 ✅ works · 🧪 written, not fully verified · ❌ not working · ⏳ not started
 

@@ -48,7 +48,7 @@ mainline. Carte observée : `max10`, révision matérielle 9.
 | Bouton power | GPIO4_IO10 (actif bas) | — | gpio-keys | 🧪 |
 | Watchdog | WDOG1 | — | imx2_wdt | 🧪 |
 | HDMI | dw-hdmi, DDC sur i2c2 | — | dw_hdmi-imx | ⏳ |
-| Capteur de lumière | Intersil ISL29023 | I²C (bus non identifié) | isl29018 | ⏳ |
+| Capteur de lumière | absent | — | — | pas de capteur : aucune ouverture en façade (seulement caméra, LED, micro), rien sur les trois bus I²C, ni sous Android |
 | Détection PoE | GPIO4_IO24 | — | — | ⏳ |
 | Audio Bluetooth SCO | AR3002 ↔ SSI3, AUDMUX int 7 ↔ ext 5 | — | — | ⏳ |
 

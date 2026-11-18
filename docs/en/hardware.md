@@ -48,7 +48,7 @@ and tests under mainline. Board observed: `max10`, hardware revision 9.
 | Power button | GPIO4_IO10 (active low) | — | gpio-keys | 🧪 |
 | Watchdog | WDOG1 | — | imx2_wdt | 🧪 |
 | HDMI | dw-hdmi, DDC on i2c2 | — | dw_hdmi-imx | ⏳ |
-| Light sensor | Intersil ISL29023 | I²C (bus not identified) | isl29018 | ⏳ |
+| Light sensor | absent | — | — | no sensor: no front opening for it (only camera, LED, microphone), nothing on the three I²C buses, nor under Android |
 | PoE detection | GPIO4_IO24 | — | — | ⏳ |
 | Bluetooth SCO audio | AR3002 ↔ SSI3, AUDMUX int 7 ↔ ext 5 | — | — | ⏳ |
 

@@ -30,7 +30,7 @@ DECT piloté depuis Linux.
 | Codec vidéo matériel (VPU CODA960) | 🧪 | le firmware (copié d'Android) se charge, nœuds V4L2 du codec présents ; décodage pas encore testé |
 | Batterie du combiné | ✅ | affichée comme batterie du système, niveau et état de charge (patch noyau 0006 + dvf99) |
 | Micro de façade | ✅ | entrée PulseAudio « Micro de façade » (par défaut), 16 kHz ; muet pendant un appel du combiné |
-| HDMI, capteur de lumière | ⏳ | pas fait |
+| HDMI (micro-HDMI à l'arrière) | ⏳ | pas fait, pas testé faute d'adaptateur |
 
 ✅ fonctionne · 🧪 écrit, pas entièrement vérifié · ❌ ne fonctionne pas · ⏳ pas commencé
 
