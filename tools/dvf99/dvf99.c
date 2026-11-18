@@ -46,6 +46,8 @@
  *                                         -q : journal réduit aux événements utiles ;
  *                                         -Y N : micro de façade, gain numérique ×N
  *                                         (défaut 1 ; 0 : coupé), tube /run/dvf99/front (16 kHz)
+ *                                         -H HZ : passe-haut du tweeter (défaut 400, ordre 4 ; 0 : coupé)
+ *                                         -L HZ : passe-haut du woofer (défaut 60, ordre 2 ; 0 : coupé)
  *
  * Sous Android, CMBSServer pulse le reset de la DVF99, envoie « run bootm » à son
  * U-Boot, puis parle CMBS. Sous mainline, personne ne le fait : la DVF99 reste
@@ -1163,6 +1165,41 @@ static volatile unsigned spk_loud_ms;	/* horodatage (ms) du dernier son non nul 
 static volatile unsigned aud_sine;
 static const int16_t sine16[16] = { 0, 3061, 5657, 7391, 8000, 7391, 5657, 3061,
 				    0, -3061, -5657, -7391, -8000, -7391, -5657, -3061 };
+
+/* Filtrage des voies du haut-parleur (16 kHz). Les petits tweeters ne doivent pas
+ * recevoir de grave : Android leur applique un passe-haut très raide vers 400 Hz
+ * (FIR de /vendor/etc/rx_wb_tweeter.ini : −58 dB à 100 Hz, −11 dB à 500 Hz) et
+ * laisse le woofer large bande. Ici : Butterworth d'ordre 4 (deux biquads) sur le
+ * tweeter (-H, défaut 400 Hz), passe-haut d'ordre 2 contre l'infra-grave sur le
+ * woofer (-L, défaut 60 Hz), que ce haut-parleur ne peut pas reproduire et qui ne
+ * ferait que l'écraser. 0 = filtre coupé. */
+#include <math.h>
+static int tweeter_hp_hz = 400;		/* -H */
+static int woofer_hp_hz = 60;		/* -L */
+struct biquad { float b0, b1, b2, a1, a2, z1, z2; };
+static void bq_highpass(struct biquad *q, double f, double Q)
+{
+	double w = 2 * M_PI * f / 16000.0, c = cos(w), al = sin(w) / (2 * Q), a0 = 1 + al;
+	q->b0 = (1 + c) / 2 / a0; q->b1 = -(1 + c) / a0; q->b2 = q->b0;
+	q->a1 = -2 * c / a0; q->a2 = (1 - al) / a0; q->z1 = q->z2 = 0;
+}
+static inline float bq_run(struct biquad *q, float x)
+{
+	float y = q->b0 * x + q->z1;
+	q->z1 = q->b1 * x - q->a1 * y + q->z2;
+	q->z2 = q->b2 * x - q->a2 * y;
+	return y;
+}
+/* applique n biquads en série, gain linéaire, saturation 16 bits */
+static void aud_filter(int16_t *v, int len, struct biquad *q, int n, float gain)
+{
+	for (int i = 0; i < len; i++) {
+		float x = v[i];
+		for (int k = 0; k < n; k++) x = bq_run(&q[k], x);
+		x *= gain;
+		v[i] = x > 32767 ? 32767 : x < -32768 ? -32768 : (int16_t)lrintf(x);
+	}
+}
 static FILE *volatile cap_dump;	/* mictest : copie brute des mots 0..3 de chaque trame */
 static volatile int cap_peak[AUD_CH_CAP];	/* crêtes de capture, remises à zéro par mictest */		/* -D N : diagnostic, haut-parleur sur la paire de voies N seule */
 
@@ -1324,6 +1361,16 @@ static void *aud_play(void *arg)
 	int16_t s[2 * AUD_FR], t[2 * AUD_FR], h[2 * AUD_FR], buf[AUD_CH_CAP * AUD_FR];
 	int fd = -1, nch = AUD_CH_CAP;
 	unsigned long periods = 0, xruns = 0;
+	struct biquad tq[2], wq[1];
+	int ntq = 0, nwq = 0;
+	if (tweeter_hp_hz > 0) {
+		bq_highpass(&tq[0], tweeter_hp_hz, 0.54119610);
+		bq_highpass(&tq[1], tweeter_hp_hz, 1.30656296);
+		ntq = 2;
+	}
+	if (woofer_hp_hz > 0) { bq_highpass(&wq[0], woofer_hp_hz, 0.70710678); nwq = 1; }
+	out("audio : passe-haut tweeter %d Hz (ordre 4), woofer %d Hz (ordre 2), tweeter à %d %%\n",
+	    tweeter_hp_hz, woofer_hp_hz, tweeter_pct);
 	double stat = now() + 15.0;
 	while (!stop_req) {
 		if (fd < 0) {
@@ -1350,13 +1397,16 @@ static void *aud_play(void *arg)
 			spk.primed = tw.primed = 0;
 			memset(s, 0, sizeof s); memset(t, 0, sizeof t);
 		}
+		/* filtres et niveau du tweeter ; en veille les tampons sont nuls */
+		aud_filter(t, 2 * AUD_FR, tq, ntq, tweeter_pct / 100.0f);
+		aud_filter(s, 2 * AUD_FR, wq, nwq, 1.0f);
 		jb_take(&hs, h, 2 * AUD_FR);
 		memset(buf, 0, sizeof buf);		/* mots 6..11 : rien à envoyer */
 		for (int i = 0; i < AUD_FR; i++) {
 			int16_t *f = buf + nch * i;
 			if (call_nb) { f[0] = h[2 * i]; f[1] = 0; }	/* 8 kHz : 1 échantillon sur 2 */
 			else { f[0] = h[2 * i]; f[1] = h[2 * i + 1]; }
-			f[2] = t[2 * i] * tweeter_pct / 100; f[3] = t[2 * i + 1] * tweeter_pct / 100;
+			f[2] = t[2 * i]; f[3] = t[2 * i + 1];
 			f[4] = s[2 * i]; f[5] = s[2 * i + 1];
 			if (audio_probe >= 0) {
 				memset(f, 0, AUD_CH * 2);
@@ -2004,7 +2054,7 @@ int main(int argc, char **argv)
 	int amp = -1, tone = 0, start_channel = 0, src = AFE_AMPOUT_IN_DAC0;
 	int gain = 34, hold = 5, keep = 0;
 	int opt;
-	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:Z:B:Y:")) != -1) {
+	while ((opt = getopt(argc, argv, "d:l:f:e:Ua:t:sS:g:w:kT:qW:P:C:NRAX:MD:I:Z:B:Y:H:L:")) != -1) {
 		switch (opt) {
 		case 'd': tty = optarg; break;
 		case 'l': journal = fopen(optarg, "a");
@@ -2033,6 +2083,8 @@ int main(int argc, char **argv)
 		case 'B': woofer_mode = atoi(optarg); break;
 		case 'I': settle_s = atoi(optarg); break;
 		case 'Y': front_gain = atoi(optarg); break;
+		case 'H': tweeter_hp_hz = atoi(optarg); break;
+		case 'L': woofer_hp_hz = atoi(optarg); break;
 		case 'D': audio_probe = atoi(optarg) % 3; break;
 		default: goto usage;
 		}
@@ -2077,7 +2129,7 @@ usage:
 	fprintf(stderr, "usage : dvf99 [-d TTY] [-l JOURNAL] [-e NVRAM] [-U] console|boot|sniff|init\n"
 			"        dvf99 [-e NVRAM] [-a AMP 0..3] [-t TONALITÉ] [-s] [-S SOURCE] tone\n"
 			"        dvf99 [-e NVRAM] [-S SOURCE] [-g GAIN] [-t TONALITÉ|-1] [-w S] [-k] speaker\n"
-			"        dvf99 [-q] [-e NVRAM] [-g GAIN] [-P SLOTS] [-W SLOTS] [-C SLOTS] [-N] service\n"
+			"        dvf99 [-q] [-e NVRAM] [-g GAIN] [-P SLOTS] [-W SLOTS] [-C SLOTS] [-N] [-H HZ] [-L HZ] service\n"
 			"          (service : touche verte du combiné = décroché automatique, -N pour non)\n"
 			"        dvf99 [-e NVRAM] param N [=HEX] [N [=HEX]…]\n"
 			"          -A : moteur audio (tubes /run/dvf99/{woofer,tweeter,handset,mic}), -X : tweeter en %%\n"

@@ -73,6 +73,20 @@ Wiring found with `dvf99 outtest`:
   in phase, `-B 2`: Android's bridge);
 - AMP_OUT0/1 (with or without GPIO D11): no sound on the speakers.
 
+**Filtering** (done by `dvf99`, at 16 kHz):
+
+- **tweeters**: 4th-order Butterworth high-pass at **400 Hz** (`-H`): −3 dB at 400 Hz, −10 dB at 300 Hz,
+  −48 dB at 100 Hz. The small speakers no longer get bass: less distortion and headroom loss at high
+  volume. Android does the same: the FIRs of its audio processing (`/vendor/etc/rx_*_tweeter.ini`) cut
+  the tweeters below ~400 Hz (−58 dB at 100 Hz);
+- **woofer**: 2nd-order high-pass at **60 Hz** (`-L`) against sub-bass it cannot reproduce. No low-pass:
+  as on Android, the woofer stays full-range (it is a mid-bass driver).
+
+Android reference settings (`/vendor/etc/DVF_config.ini` and `config.ini`): AMP_OUT2 and AMP_OUT3 at
+−12 dB in the AFE; in the software processing, the woofer is 4 dB below the tweeter at each volume step
+and the front microphone gets +19 dB followed by an AGC. Those Android filters apply to the voice
+(call) path; the vendor files are not in this repository.
+
 - Each output pipe has a jitter buffer (starts after 60 ms of data, drops anything beyond 200 ms).
 - **Speaker sleep**: after `-Z` seconds (default 5) without a non-zero sample, `dvf99` switches the woofer
   amplifier off (DVF9919 GPIO D10) and stops the tweeter channel, which removes the faint hiss at rest.
@@ -333,6 +347,8 @@ Build: `tools/dvf99/build.sh` (static ARM binary) or the device package. Run as 
 | `-A` | audio engine (pipes in `/run/dvf99`); `-M`: no capture |
 | `-g GAIN` | woofer gain 32..36 |
 | `-X PCT` | tweeter level |
+| `-H HZ` | tweeter high-pass, 4th order (default 400, 0 = off) |
+| `-L HZ` | woofer high-pass, 2nd order (default 60, 0 = off) |
 | `-Z S` | speaker sleep delay, 0 = never |
 | `-N` | no auto-answer |
 | `-I S` | maximum wait for the handset before opening channels (default 30) |

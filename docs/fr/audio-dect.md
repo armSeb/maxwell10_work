@@ -74,6 +74,20 @@ Câblage relevé avec `dvf99 outtest` :
   `-B 2` : le pont d'Android) ;
 - AMP_OUT0/1 (avec ou sans GPIO D11) : aucun son sur les haut-parleurs.
 
+**Filtrage** (fait par `dvf99`, à 16 kHz) :
+
+- **tweeters** : passe-haut Butterworth d'ordre 4 à **400 Hz** (`-H`) : −3 dB à 400 Hz, −10 dB à 300 Hz,
+  −48 dB à 100 Hz. Les petits haut-parleurs ne reçoivent plus de grave : moins de distorsion et de marge
+  perdue à fort volume. Android fait de même : les FIR de son traitement audio (`/vendor/etc/rx_*_tweeter.ini`)
+  coupent les tweeters sous ~400 Hz (−58 dB à 100 Hz) ;
+- **woofer** : passe-haut d'ordre 2 à **60 Hz** (`-L`) contre l'infra-grave qu'il ne peut pas reproduire.
+  Pas de passe-bas : comme chez Android, le woofer reste large bande (c'est un médium-grave).
+
+Réglages de référence d'Android (`/vendor/etc/DVF_config.ini` et `config.ini`) : AMP_OUT2 et AMP_OUT3 à
+−12 dB dans l'AFE ; dans le traitement logiciel, le woofer est 4 dB sous le tweeter à chaque cran de
+volume et le micro de façade reçoit +19 dB puis une AGC. Ces filtres d'Android sont appliqués au chemin
+de la voix (appels) ; les fichiers du constructeur ne sont pas dans ce dépôt.
+
 - Chaque tube de sortie a un tampon de gigue (démarre après 60 ms de données, jette l'excédent au-delà
   de 200 ms).
 - **Veille du haut-parleur** : après `-Z` secondes (5 par défaut) sans échantillon non nul, `dvf99` coupe
@@ -344,6 +358,8 @@ root ; arrêter d'abord `dvf99.service`, un seul programme peut utiliser l'UART.
 | `-A` | moteur audio (tubes dans `/run/dvf99`) ; `-M` : sans capture |
 | `-g GAIN` | gain du woofer 32..36 |
 | `-X PCT` | niveau du tweeter |
+| `-H HZ` | passe-haut du tweeter, ordre 4 (défaut 400, 0 = coupé) |
+| `-L HZ` | passe-haut du woofer, ordre 2 (défaut 60, 0 = coupé) |
 | `-Z S` | délai de veille du haut-parleur, 0 = jamais |
 | `-N` | pas de décroché automatique |
 | `-I S` | attente maximale du combiné avant d'ouvrir les canaux (défaut 30) |

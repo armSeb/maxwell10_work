@@ -6,7 +6,9 @@
 #   DVF99_OPTS=                            extra dvf99 options, e.g. -N (no auto-answer),
 #                                          -Z 30 (speaker sleep after 30 s of silence, -Z 0: never),
 #                                          -B 1 (woofer on AMP_OUT2+OUT3 in phase, default OUT2 only),
-#                                          -Y 2 (front microphone digital gain, default 1; -Y 0: off)
+#                                          -Y 2 (front microphone digital gain, default 1; -Y 0: off),
+#                                          -H 400 (tweeter high-pass in Hz, -H 0: off),
+#                                          -L 60 (woofer high-pass in Hz, -L 0: off)
 nv=${DVF99_NVRAM:-/var/lib/dvf99/nvram.bin}
 
 # First boot: import the base EEPROM from the untouched Android data partition
