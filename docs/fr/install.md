@@ -80,8 +80,8 @@ Le script :
 
 Le U-Boot d'origine est sur l'**UART2** (`ttymxc1`), **115200 8N1**, niveaux 3,3 V.
 
-> **À COMPLÉTER** : emplacement des pastilles de l'UART2 sur la carte (photo). La masse peut être
-> prise sur un blindage métallique ou sur la carcasse d'un connecteur USB.
+> Emplacement des pastilles (photo) : [hardware.md](hardware.md#pastilles-de-la-console-uart2).
+> ⚠️ La pastille non étamée voisine de la masse est le **+12 V** : ne pas y toucher.
 
 Relier la masse, le TX de la carte au RX de l'adaptateur et le RX de la carte au TX de l'adaptateur
 (une résistance de 1 kΩ en série sur cette ligne est une bonne précaution). Puis sur le PC :

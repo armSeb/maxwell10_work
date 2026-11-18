@@ -80,8 +80,8 @@ Rerun with `REUSE_IMAGE=1` to write the last built image to another card without
 
 The vendor U-Boot is reached on **UART2** (`ttymxc1`), **115200 8N1**, 3.3 V levels.
 
-> **TODO**: location of the UART2 pads on the board (photo). Ground can be taken from any metal
-> shield or from the USB connector shell.
+> Pad location (photo): [hardware.md](hardware.md#console-pads-uart2).
+> ⚠️ The untinned pad next to ground is **+12 V**: do not touch it.
 
 Connect GND, the board TX to the adapter RX, and the board RX to the adapter TX (a 1 kΩ resistor in
 series on that line is a good precaution). Then on the PC:
